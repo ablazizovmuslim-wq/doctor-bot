@@ -255,7 +255,9 @@ async def ask_claude(uid: int, lang: str, question: str) -> tuple[str, int, int]
         max_tokens=MAX_TOKENS,
         system=[
             {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}},
-            {"type": "text", "text": f"Язык, выбранный клиентом: {lang_name}."},
+            {"type": "text", "text": f"Язык, выбранный клиентом: {lang_name}. "
+                                     f"Сегодняшняя дата: {today().strftime('%d.%m.%Y')} "
+                                     f"({WEEKDAYS['ru'][today().weekday()]})."},
         ],
         messages=messages,
     )
