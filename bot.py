@@ -812,10 +812,14 @@ CHEQUE_PROMPT = """Bu rasm to'lov chekimi? Undan ma'lumotlarni ol. Faqat shu JSO
  "recipient_card_last4": "9012",
  "recipient_name": "...",
  "datetime": "2026-11-16 14:30",
+ "transaction_id": "123456789",
  "edited_signs": false}
 success — to'lov muvaffaqiyatli o'tganmi (Успешно, Muvaffaqiyatli, Выполнено, ✓).
 amount — o'tkazilgan asosiy summa so'mda, butun son (komissiyasiz); bo'lmasa null.
-recipient_card_last4 — QABUL QILUVCHI karta raqamining oxirgi 4 raqami; bo'lmasa null.
+recipient_card_last4 — QABUL QILUVCHI karta raqamining oxirgi 4 raqami. Raqam yulduzcha bilan yashirilgan bo'lsa ham
+oxirgi 4 raqamni yoz (masalan "4073 42** **** 9018" yoki "**9018" → "9018"). Umuman ko'rinmasa null.
+recipient_name — qabul qiluvchining ismi (masalan "SHERZODBEK O."), bo'lmasa null.
+transaction_id — tranzaksiya/chek/operatsiya raqami (ID), bo'lmasa null.
 datetime — chekdagi sana va vaqt (YYYY-MM-DD HH:MM); bo'lmasa null.
 edited_signs — tahrirlangan/soxta belgilar ko'rinsa true (shriftlar mos emas, raqamlar ustidan yozilgan)."""
 
@@ -871,7 +875,7 @@ async def approve_payment(bot: Bot, pid: int, note: str | None = None) -> bool:
 
 async def check_cheque(bot: Bot, pid: int, file_id: str, unique_id: str, mime: str) -> None:
     """Chekni Claude bilan o'qib tekshiradi: summa, karta, sana, takror chek. Hammasi mos — avtomatik tasdiq."""
-    reasons, info = [], {}
+    reasons, warnings, info = [], [], {}
     row = db.execute("SELECT amount, created_at FROM payments WHERE id=?", (pid,)).fetchone()
     need, created = int(row[0]), datetime.fromisoformat(row[1])
     try:
@@ -892,15 +896,29 @@ async def check_cheque(bot: Bot, pid: int, file_id: str, unique_id: str, mime: s
             reasons.append("tahrirlangan belgilar bor")
         if amount < need - 500:
             reasons.append(f"summa mos emas ({money(amount) if amount else 'o‘qilmadi'} / kerak {money(need)})")
-        if not last4 or last4 != mine:
-            reasons.append(f"qabul qiluvchi karta mos emas (*{last4 or '?'} / sizniki *{mine})")
+        # Karta: ko'rinsa — mos bo'lishi shart; ko'rinmasa — ism bo'yicha yoki ogohlantirish bilan o'tkazamiz
+        holder_words = {w.lower() for w in re.findall(r"\w{3,}", get_setting("holder") or "")}
+        name = str(info.get("recipient_name") or "")
+        name_ok = bool(holder_words & {w.lower().rstrip(".") for w in re.findall(r"\w{3,}", name)})
+        if last4 and last4 != mine:
+            reasons.append(f"qabul qiluvchi karta mos emas (*{last4} / sizniki *{mine})")
+        elif not last4 and name and not name_ok:
+            reasons.append(f"qabul qiluvchi boshqa odam ({name})")
+        elif not last4 and not name:
+            warnings.append("chekda karta raqami va qabul qiluvchi ko'rinmadi")
+        # Takroriy tranzaksiya (boshqa skrinshot bo'lsa ham)
+        txn = _digits(info.get("transaction_id"))
+        if len(txn) >= 5:
+            used_txn = get_setting(f"txn_{txn}")
+            if used_txn:
+                reasons.append(f"bu tranzaksiya avval ishlatilgan (#{used_txn})")
         dt = None
         try:
             dt = datetime.strptime(str(info.get("datetime"))[:16], "%Y-%m-%d %H:%M").replace(tzinfo=TZ)
         except (TypeError, ValueError):
             pass
         if not dt:
-            reasons.append("chekda sana o'qilmadi")
+            warnings.append("chekda sana ko'rinmadi")
         elif not (now() - timedelta(hours=36) <= dt <= now() + timedelta(minutes=30)):
             reasons.append("chek sanasi eski yoki noto'g'ri")
         elif dt < created - timedelta(hours=3):
@@ -909,7 +927,8 @@ async def check_cheque(bot: Bot, pid: int, file_id: str, unique_id: str, mime: s
         log.exception("cheque check failed")
         reasons.append(f"chek o'qilmadi ({str(e)[:120]})")
 
-    log.info("Chek #%s o'qildi: %s | sabablar: %s", pid, info, reasons or "yo'q — avtomatik tasdiq")
+    log.info("Chek #%s o'qildi: %s | sabablar: %s | ogohlantirish: %s", pid, info,
+             reasons or "yo'q — avtomatik tasdiq", warnings)
     status = db.execute("SELECT status FROM payments WHERE id=?", (pid,)).fetchone()[0]
     if status != "pending":  # admin allaqachon qaror qilgan
         return
@@ -928,11 +947,19 @@ async def check_cheque(bot: Bot, pid: int, file_id: str, unique_id: str, mime: s
         )
         return
     set_setting(f"cheque_{unique_id}", str(pid))
+    txn = _digits(info.get("transaction_id"))
+    if len(txn) >= 5:
+        set_setting(f"txn_{txn}", str(pid))
+    last4 = _digits(info.get("recipient_card_last4"))[-4:]
+    warn = ("\n⚠️ Tekshirib bo'lmadi: " + "; ".join(warnings) + ". Kartangizga tushganini albatta ko'rib qo'ying."
+            if warnings else "\nVaqtingiz bo'lganda kartangizga tushganini tekshirib qo'ying.")
     await approve_payment(
         bot, pid,
-        f"✅ #{pid} — <b>chek avtomatik tasdiqlandi</b>: {money(int(_digits(info.get('amount'))))} so'm → karta "
-        f"*{_digits(get_setting('card'))[-4:]}, {html.escape(str(info.get('datetime')))}.\n"
-        "Vaqtingiz bo'lganda kartangizga tushganini tekshirib qo'ying.",
+        f"✅ #{pid} — <b>chek avtomatik tasdiqlandi</b>: {money(int(_digits(info.get('amount')) or 0))} so'm"
+        + (f" → karta *{last4}" if last4 else "")
+        + (f", {html.escape(str(info.get('datetime')))}" if info.get("datetime") else "")
+        + "." + warn
+        + f"\nYolg'on bo'lsa: /ban {db.execute('SELECT user_id FROM payments WHERE id=?', (pid,)).fetchone()[0]}",
     )
 
 
@@ -1021,6 +1048,7 @@ ADMIN_HELP = (
     "/setcard <code>8600123412341234 Ism Familiya</code> — to'lov kartasi\n"
     "/setprice <code>10000 5000</code> — narx: oddiy va obunachi (hisoblash va savol)\n"
     "/addcredit <code>ID 1</code> — foydalanuvchiga bepul savol berish\n"
+    "/ban <code>ID</code> | /unban <code>ID</code> — yolg'on chek yuborganni bloklash\n"
     "/autochek <code>on</code> | <code>off</code> — chekni avtomatik (aqlli) tekshirish\n"
     "/test <code>on</code> | <code>off</code> — o'zingizni oddiy mijoz sifatida sinash\n"
     "/obuna <code>auto</code> | <code>manual</code> — Instagram obunani darhol ochish yoki qo'lda tasdiqlash\n"
@@ -1152,6 +1180,22 @@ async def cmd_setprice(message: Message, command: CommandObject):
     set_setting("price_full", nums[0])
     set_setting("price_sub", nums[1])
     await message.answer(f"✅ Narx: {money(nums[0])} so'm, obunachiga {money(nums[1])} so'm")
+
+
+@admin_router.message(Command("ban", "unban"))
+async def cmd_ban(message: Message, command: CommandObject):
+    if not is_admin(message.from_user.id):
+        return
+    nums = re.findall(r"\d+", command.args or "")
+    if not nums:
+        return await message.answer("Masalan: /ban 123456789  (bekor qilish: /unban 123456789)")
+    uid = int(nums[0])
+    ban = message.text.startswith("/ban")
+    set_user_field(uid, "banned", 1 if ban else 0)
+    if ban:
+        db.execute("UPDATE users SET credits=0, calc_paid=0 WHERE user_id=?", (uid,))
+        db.commit()
+    await message.answer(f"{'🚫 Bloklandi' if ban else '✅ Blokdan chiqarildi'}: {uid}")
 
 
 @admin_router.message(Command("addcredit"))
