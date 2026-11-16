@@ -1692,6 +1692,8 @@ async def answer_question(message: Message, bot: Bot, question: str, media_msg: 
 
     add_usage(uid)
     write_log(uid, "question", question, answer, in_tok, out_tok, MODEL)
+    if answer:
+        answer += t["ai_note"]  # har bir javob ostida: bu AI javobi, shifokor bilan tekshiring
     if vip and not admin and answer:
         answer += t["vip_left"].format(until=vip_until(uid).strftime("%d.%m.%Y"))
     elif not admin and answer:
