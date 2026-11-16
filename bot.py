@@ -842,7 +842,10 @@ async def read_cheque(data: bytes, mime: str) -> dict:
     raw = "".join(b.text for b in resp.content if b.type == "text")
     write_log(0, "cheque", "", raw[:500], resp.usage.input_tokens or 0, resp.usage.output_tokens or 0, MODEL)
     m = re.search(r"\{.*\}", raw, re.S)
-    return json.loads(m.group(0)) if m else {}
+    if not m:
+        raise ValueError(f"JSON topilmadi: {raw[:100]}")
+    txt = re.sub(r"//[^\n]*", "", m.group(0))  # izohlarni olib tashlash
+    return json.loads(txt)
 
 
 async def approve_payment(bot: Bot, pid: int, note: str | None = None) -> bool:
@@ -906,6 +909,7 @@ async def check_cheque(bot: Bot, pid: int, file_id: str, unique_id: str, mime: s
         log.exception("cheque check failed")
         reasons.append(f"chek o'qilmadi ({str(e)[:120]})")
 
+    log.info("Chek #%s o'qildi: %s | sabablar: %s", pid, info, reasons or "yo'q — avtomatik tasdiq")
     status = db.execute("SELECT status FROM payments WHERE id=?", (pid,)).fetchone()[0]
     if status != "pending":  # admin allaqachon qaror qilgan
         return
