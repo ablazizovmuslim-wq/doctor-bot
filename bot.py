@@ -211,6 +211,16 @@ def admin_ids() -> set[int]:
 
 def is_admin(uid: int) -> bool:
     return uid in admin_ids()
+
+
+def test_mode(uid: int) -> bool:
+    row = db.execute("SELECT value FROM settings WHERE key=?", (f"testmode_{uid}",)).fetchone()
+    return bool(row and row[0] == "on")
+
+
+def privileged(uid: int) -> bool:
+    """Admin, lekin /test on bo'lsa — oddiy mijoz kabi (obuna va to'lov so'raladi)."""
+    return is_admin(uid) and not test_mode(uid)
 USE_STYLES = os.getenv("BUTTON_STYLES", "1") != "0"  # rangli tugmalar
 
 
@@ -606,7 +616,7 @@ def insta_kb(lang: str) -> InlineKeyboardMarkup:
 
 async def ensure_sub(message: Message, lang: str, uid: int) -> bool:
     """Obuna bo'lmagan bo'lsa, obuna bo'lishni so'raydi va False qaytaradi."""
-    if not insta_url() or is_admin(uid) or is_subscribed(uid):
+    if not insta_url() or privileged(uid) or is_subscribed(uid):
         return True
     if user_field(uid, "sub", "") == "pending":
         await message.answer(T[lang]["sub_pending"])
@@ -981,6 +991,7 @@ ADMIN_HELP = (
     "/setprice <code>10000 5000</code> — narx: oddiy va obunachi\n"
     "/addcredit <code>ID 1</code> — foydalanuvchiga bepul savol berish\n"
     "/autochek <code>on</code> | <code>off</code> — chekni avtomatik (aqlli) tekshirish\n"
+    "/test <code>on</code> | <code>off</code> — o'zingizni oddiy mijoz sifatida sinash\n"
     "/obuna <code>auto</code> | <code>manual</code> — Instagram obunani darhol ochish yoki qo'lda tasdiqlash\n"
     "/stats — statistika\n"
     "/addpremium — tugmalarga premium emoji\n\n"
@@ -1014,6 +1025,28 @@ async def cmd_settings(message: Message):
         f"👑 Adminlar soni: {len(admin_ids())}\n\n" + ADMIN_HELP,
         parse_mode="HTML",
         link_preview_options=LinkPreviewOptions(is_disabled=True),
+    )
+
+
+@admin_router.message(Command("test"))
+async def cmd_test(message: Message, command: CommandObject, state: FSMContext):
+    uid = message.from_user.id
+    if not is_admin(uid):
+        return
+    arg = (command.args or "").strip().lower()
+    if arg in ("on", "off"):
+        db.execute("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)", (f"testmode_{uid}", arg))
+        if arg == "on":  # toza mijoz sifatida boshlash
+            db.execute("UPDATE users SET sub='', credits=0 WHERE user_id=?", (uid,))
+            db.execute("UPDATE payments SET status='test' WHERE user_id=? AND status='pending'", (uid,))
+        db.commit()
+        await state.clear()
+    on = test_mode(uid)
+    await message.answer(
+        ("🧪 Sinov rejimi YOQILGAN: bot sizni oddiy mijoz deb ko'radi — Instagram obuna va to'lov so'raladi. "
+         "Admin xabarlari (chek, obuna) ham sizga keladi, ularni ✅/❌ qilib sinab ko'ring.\n\nO'chirish: /test off")
+        if on else
+        "🧪 Sinov rejimi o'chirilgan: siz admin sifatida hammasidan bepul foydalanasiz.\n\nYoqish: /test on"
     )
 
 
@@ -1165,7 +1198,7 @@ async def btn_other(message: Message, state: FSMContext):
     await state.clear()
     uid = message.from_user.id
     lang = get_lang(uid)
-    if is_admin(uid) or int(user_field(uid, "credits", 0)) > 0:
+    if privileged(uid) or int(user_field(uid, "credits", 0)) > 0:
         return await message.answer(T[lang]["ask_question"])
     await show_payment(message, state, lang, uid)
 
@@ -1294,12 +1327,12 @@ async def free_question(message: Message, bot: Bot, state: FSMContext):
     t = T[lang]
     if message.text.startswith("/"):
         return
-    admin = is_admin(uid)
+    admin = privileged(uid)
     if not admin and int(user_field(uid, "credits", 0)) <= 0:
         return await show_payment(message, state, lang, uid)
     if client is None:
         return await message.answer(t["unavailable"])
-    if used_today(uid) >= DAILY_LIMIT and not is_admin(uid):
+    if used_today(uid) >= DAILY_LIMIT and not privileged(uid):
         return await message.answer(t["limit"].format(limit=DAILY_LIMIT))
 
     await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
@@ -1330,7 +1363,7 @@ async def free_question(message: Message, bot: Bot, state: FSMContext):
 @router.message()
 async def other_content(message: Message, bot: Bot, state: FSMContext):
     # Holatsiz yuborilgan rasm/fayl — ehtimol to'lov cheki
-    if (message.photo or message.document) and not is_admin(message.from_user.id):
+    if (message.photo or message.document) and not privileged(message.from_user.id):
         return await handle_receipt(message, bot, state)
     await message.answer(T[get_lang(message.from_user.id)]["text_only"])
 
