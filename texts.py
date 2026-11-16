@@ -82,7 +82,7 @@ T = {
         "sub_no": "❌ Obuna topilmadi. Iltimos, Instagram sahifaga obuna bo'lib, qaytadan «✅ Obuna bo'ldim» tugmasini bosing.",
         # --- Pullik savol ---
         "pay_info": (
-            "❓ Shaxsiy savolingizga to'liq javob olish narxi: {price} so'm{discount}\n\n"
+            "❓ {n} ta savolingizga to'liq javob olish narxi: {price} so'm{discount}\n\n"
             "💳 Karta: {card}\n"
             "👤 {holder}\n\n"
             "To'lovni qilgach, chekni (skrinshot) shu yerga yuboring 👇"
@@ -108,7 +108,7 @@ T = {
         "pay_need_photo": "Iltimos, to'lov chekini rasm (skrinshot) ko'rinishida yuboring 📸",
         "pay_sent": "⏳ Chek yuborildi. To'lov tasdiqlangach, sizga xabar keladi.",
         "pay_pending": "⏳ To'lovingiz tekshirilmoqda. Tasdiqlangach, sizga xabar keladi.",
-        "pay_ok": "✅ To'lov tasdiqlandi! Rahmat 🌸\n\nEndi savolingizni batafsil yozing ✍️",
+        "pay_ok": "✅ To'lov tasdiqlandi! Rahmat 🌸\n\nSizda {n} ta savol bor. Birinchi savolingizni batafsil yozing ✍️",
         "pay_no": "❌ To'lov topilmadi. Agar to'lagan bo'lsangiz, chekni qaytadan yuboring.",
         "ask_question": "✍️ Savolingizni batafsil yozing, to'liq javob beraman.",
         "credit_left": "\n\n💬 Qolgan savollar: {n}",
@@ -186,7 +186,7 @@ T = {
         "sub_no": "❌ Подписка не найдена. Подпишитесь на страницу в Instagram и снова нажмите «✅ Я подписался(ась)».",
         # --- Платный вопрос ---
         "pay_info": (
-            "❓ Полный ответ на ваш личный вопрос стоит: {price} сум{discount}\n\n"
+            "❓ Полные ответы на {n} ваших вопроса: {price} сум{discount}\n\n"
             "💳 Карта: {card}\n"
             "👤 {holder}\n\n"
             "После оплаты отправьте сюда чек (скриншот) 👇"
@@ -212,7 +212,7 @@ T = {
         "pay_need_photo": "Пожалуйста, отправьте чек об оплате в виде фото (скриншота) 📸",
         "pay_sent": "⏳ Чек отправлен. После подтверждения оплаты вам придёт сообщение.",
         "pay_pending": "⏳ Ваша оплата проверяется. После подтверждения вам придёт сообщение.",
-        "pay_ok": "✅ Оплата подтверждена! Спасибо 🌸\n\nТеперь подробно напишите ваш вопрос ✍️",
+        "pay_ok": "✅ Оплата подтверждена! Спасибо 🌸\n\nУ вас {n} вопроса. Подробно напишите первый вопрос ✍️",
         "pay_no": "❌ Оплата не найдена. Если вы оплатили, отправьте чек ещё раз.",
         "ask_question": "✍️ Подробно напишите ваш вопрос, я дам полный ответ.",
         "credit_left": "\n\n💬 Осталось вопросов: {n}",

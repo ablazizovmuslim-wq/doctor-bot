@@ -93,6 +93,7 @@ DEFAULT_SETTINGS = {
     "price_full": os.getenv("PRICE_FULL", "10000"),
     "price_sub": os.getenv("PRICE_SUB", "5000"),
     "price_calc": os.getenv("PRICE_CALC", "10000"),
+    "pack": os.getenv("QUESTIONS_PER_PAYMENT", "3"),
 }
 
 
@@ -119,6 +120,13 @@ def set_user_field(uid: int, field: str, value) -> None:
 
 def is_subscribed(uid: int) -> bool:
     return user_field(uid, "sub", "") == "ok"
+
+
+def pack_size() -> int:
+    try:
+        return max(1, int(get_setting("pack") or 3))
+    except ValueError:
+        return 3
 
 
 def money(n: int | str) -> str:
@@ -717,6 +725,7 @@ async def show_payment(message: Message, state: FSMContext, lang: str, uid: int,
     card_txt, holder = f"<code>{html.escape(card)}</code>", html.escape(get_setting("holder") or "—")
     price = get_setting("price_sub") if sub else get_setting("price_full")
     text = t["pay_info_calc" if purpose == "calc" else "pay_info"].format(
+        n=pack_size(),
         price=money(price),
         discount=t["pay_discount"] if sub else "",
         card=card_txt,
@@ -863,11 +872,12 @@ async def approve_payment(bot: Bot, pid: int, note: str | None = None) -> bool:
     if purpose == "calc":
         db.execute("UPDATE users SET calc_paid = COALESCE(calc_paid, 0) + 1 WHERE user_id=?", (uid,))
     else:
-        db.execute("UPDATE users SET credits = COALESCE(credits, 0) + 1 WHERE user_id=?", (uid,))
+        db.execute("UPDATE users SET credits = COALESCE(credits, 0) + ? WHERE user_id=?", (pack_size(), uid))
     db.commit()
     lang = get_lang(uid)
     await clear_user_state(bot, uid)
-    await bot.send_message(uid, T[lang]["pay_ok_calc" if purpose == "calc" else "pay_ok"], reply_markup=menu_kb(lang))
+    await bot.send_message(uid, T[lang]["pay_ok_calc" if purpose == "calc" else "pay_ok"].format(n=pack_size()),
+                           reply_markup=menu_kb(lang))
     if note:
         await send_admins(bot, note)
     return True
@@ -1047,6 +1057,7 @@ ADMIN_HELP = (
     "/setinsta <code>https://instagram.com/username</code> — Instagram sahifa\n"
     "/setcard <code>8600123412341234 Ism Familiya</code> — to'lov kartasi\n"
     "/setprice <code>10000 5000</code> — narx: oddiy va obunachi (hisoblash va savol)\n"
+    "/setpack <code>3</code> — 1 ta to'lovga nechta savol\n"
     "/addcredit <code>ID 1</code> — foydalanuvchiga bepul savol berish\n"
     "/ban <code>ID</code> | /unban <code>ID</code> — yolg'on chek yuborganni bloklash\n"
     "/autochek <code>on</code> | <code>off</code> — chekni avtomatik (aqlli) tekshirish\n"
@@ -1080,6 +1091,7 @@ async def cmd_settings(message: Message):
         f"💳 Karta: <code>{html.escape(get_setting('card') or '—')}</code>\n"
         f"👤 Egasi: {html.escape(get_setting('holder') or '—')}\n"
         f"💵 Narx (hisoblash va savol): {money(get_setting('price_full'))} so'm, obunachiga {money(get_setting('price_sub'))} so'm\n"
+        f"❓ 1 to'lov = {pack_size()} ta savol\n"
         f"🤖 Aqlli chek tekshiruvi: {'yoqilgan' if auto_cheque_on() else 'o‘chirilgan' + ('' if client else ' (Claude kaliti yo‘q)')}\n"
         f"👑 Adminlar soni: {len(admin_ids())}\n\n" + ADMIN_HELP,
         parse_mode="HTML",
@@ -1182,6 +1194,17 @@ async def cmd_setprice(message: Message, command: CommandObject):
     await message.answer(f"✅ Narx: {money(nums[0])} so'm, obunachiga {money(nums[1])} so'm")
 
 
+@admin_router.message(Command("setpack"))
+async def cmd_setpack(message: Message, command: CommandObject):
+    if not is_admin(message.from_user.id):
+        return
+    nums = re.findall(r"\d+", command.args or "")
+    if not nums or not 1 <= int(nums[0]) <= 50:
+        return await message.answer(f"Hozir: 1 to'lov = {pack_size()} ta savol.\nO'zgartirish: /setpack 3")
+    set_setting("pack", nums[0])
+    await message.answer(f"✅ Endi 1 ta to'lov = {nums[0]} ta savol")
+
+
 @admin_router.message(Command("ban", "unban"))
 async def cmd_ban(message: Message, command: CommandObject):
     if not is_admin(message.from_user.id):
@@ -1211,7 +1234,7 @@ async def cmd_addcredit(message: Message, command: CommandObject, bot: Bot):
     await message.answer(f"✅ {uid} ga {n} ta savol qo'shildi.")
     try:
         lang = get_lang(uid)
-        await bot.send_message(uid, T[lang]["pay_ok"], reply_markup=menu_kb(lang))
+        await bot.send_message(uid, T[lang]["pay_ok"].format(n=n), reply_markup=menu_kb(lang))
     except Exception:
         pass
 
