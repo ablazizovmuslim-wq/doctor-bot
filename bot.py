@@ -119,11 +119,46 @@ def write_log(uid, kind, question, answer, in_tok=0, out_tok=0, model=""):
 
 
 # ---------- Klaviaturalar ----------
+# Premium (custom) emoji ID'lari Railway Variables orqali beriladi: EMOJI_CALC, EMOJI_OTHER, ...
+# ID'ni bilish uchun botga "/emoji 😀" deb premium emoji bilan yozing.
+# Ishlashi uchun bot egasida Telegram Premium bo'lishi kerak.
+ICON_KEYS = ["calc", "other", "lang", "yes", "no", "uz", "ru", "cycle"]
+ICONS = {k: os.getenv(f"EMOJI_{k.upper()}", "").strip() or None for k in ICON_KEYS}
+USE_STYLES = os.getenv("BUTTON_STYLES", "1") != "0"  # rangli tugmalar
+
+
+def strip_emoji(s: str) -> str:
+    """'🗓 Ovulyatsiyani hisoblash' -> 'Ovulyatsiyani hisoblash'"""
+    first, _, rest = s.partition(" ")
+    return rest if rest and not any(ch.isalnum() for ch in first) else s
+
+
+def label(text: str, icon_key: str) -> str:
+    return strip_emoji(text) if ICONS.get(icon_key) else text
+
+
+def style(name: str | None) -> str | None:
+    return name if USE_STYLES else None
+
+
+def ibtn(text: str, data: str, icon_key: str | None = None, st: str | None = None) -> InlineKeyboardButton:
+    return InlineKeyboardButton(
+        text=label(text, icon_key) if icon_key else text,
+        callback_data=data,
+        icon_custom_emoji_id=ICONS.get(icon_key) if icon_key else None,
+        style=style(st),
+    )
+
+
+def kbtn(text: str, icon_key: str, st: str | None = None) -> KeyboardButton:
+    return KeyboardButton(text=label(text, icon_key), icon_custom_emoji_id=ICONS.get(icon_key), style=style(st))
+
+
 def lang_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[[
-            InlineKeyboardButton(text="🇺🇿 O'zbekcha", callback_data="lang:uz"),
-            InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang:ru"),
+            ibtn("🇺🇿 O'zbekcha", "lang:uz", "uz", "primary"),
+            ibtn("🇷🇺 Русский", "lang:ru", "ru", "primary"),
         ]]
     )
 
@@ -132,9 +167,9 @@ def menu_kb(lang: str) -> ReplyKeyboardMarkup:
     t = T[lang]
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text=t["btn_calc"])],
-            [KeyboardButton(text=t["btn_other"])],
-            [KeyboardButton(text=t["btn_lang"])],
+            [kbtn(t["btn_calc"], "calc", "primary")],
+            [kbtn(t["btn_other"], "other", "success")],
+            [kbtn(t["btn_lang"], "lang")],
         ],
         resize_keyboard=True,
     )
@@ -143,7 +178,7 @@ def menu_kb(lang: str) -> ReplyKeyboardMarkup:
 def cycle_kb() -> InlineKeyboardMarkup:
     nums = list(range(21, 36))
     rows = [
-        [InlineKeyboardButton(text=str(n), callback_data=f"cyc:{n}") for n in nums[i:i + 5]]
+        [ibtn(str(n), f"cyc:{n}", st="primary" if n == 28 else None) for n in nums[i:i + 5]]
         for i in range(0, len(nums), 5)
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -153,15 +188,19 @@ def regular_kb(lang: str) -> InlineKeyboardMarkup:
     t = T[lang]
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=t["yes"], callback_data="reg:yes")],
-            [InlineKeyboardButton(text=t["no"], callback_data="reg:no")],
+            [ibtn(t["yes"], "reg:yes", "yes", "success")],
+            [ibtn(t["no"], "reg:no", "no", "danger")],
         ]
     )
 
 
-CALC_BTNS = {T[l]["btn_calc"] for l in T}
-OTHER_BTNS = {T[l]["btn_other"] for l in T}
-LANG_BTNS = {T[l]["btn_lang"] for l in T}
+def _variants(key: str) -> set[str]:
+    return {T[l][key] for l in T} | {strip_emoji(T[l][key]) for l in T}
+
+
+CALC_BTNS = _variants("btn_calc")
+OTHER_BTNS = _variants("btn_other")
+LANG_BTNS = _variants("btn_lang")
 
 
 # ---------- Ovulyatsiya hisobi ----------
@@ -284,6 +323,20 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     save_user(message)
     await message.answer(CHOOSE_LANG, reply_markup=lang_kb())
+
+
+@router.message(Command("emoji"))
+async def cmd_emoji(message: Message):
+    """Premium emoji ID'larini ko'rsatadi: /emoji 😀🔥"""
+    found = [
+        (e.extract_from(message.text or ""), e.custom_emoji_id)
+        for e in (message.entities or [])
+        if e.type == "custom_emoji"
+    ]
+    if not found:
+        return await message.answer("Premium emoji bilan yozing, masalan: /emoji 😀")
+    lines = [f"{ch}  →  {eid}" for ch, eid in found]
+    await message.answer("Premium emoji ID'lari:\n\n" + "\n".join(lines))
 
 
 @router.message(F.text.in_(LANG_BTNS))
