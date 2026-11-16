@@ -1,6 +1,7 @@
 """Shifokor yordamchi boti: ovulyatsiya kalkulyatori + Claude orqali savollarga javob."""
 
 import asyncio
+import contextvars
 import logging
 import os
 import re
@@ -13,6 +14,7 @@ from zoneinfo import ZoneInfo
 import anthropic
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.enums import ChatAction
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -57,6 +59,8 @@ db.executescript(
         user_id INTEGER PRIMARY KEY, lang TEXT, name TEXT, username TEXT, created_at TEXT);
     CREATE TABLE IF NOT EXISTS usage(
         user_id INTEGER, day TEXT, count INTEGER, PRIMARY KEY(user_id, day));
+    CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
+    CREATE TABLE IF NOT EXISTS admins(user_id INTEGER PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS log(
         id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, kind TEXT,
         question TEXT, answer TEXT, in_tok INTEGER, out_tok INTEGER, model TEXT, created_at TEXT);
@@ -122,8 +126,37 @@ def write_log(uid, kind, question, answer, in_tok=0, out_tok=0, model=""):
 # Premium (custom) emoji ID'lari Railway Variables orqali beriladi: EMOJI_CALC, EMOJI_OTHER, ...
 # ID'ni bilish uchun botga "/emoji 😀" deb premium emoji bilan yozing.
 # Ishlashi uchun bot egasida Telegram Premium bo'lishi kerak.
-ICON_KEYS = ["calc", "other", "lang", "yes", "no", "uz", "ru", "cycle"]
+ICON_KEYS = ["calc", "other", "lang", "yes", "no", "uz", "ru"]
+ICON_NAMES = {
+    "calc": "🗓 Ovulyatsiyani hisoblash",
+    "other": "❓ Boshqa savol",
+    "lang": "🌐 Tilni o'zgartirish",
+    "yes": "✅ Ha, doim bir xil",
+    "no": "❌ Yo'q, o'zgarib turadi",
+    "uz": "🇺🇿 O'zbekcha",
+    "ru": "🇷🇺 Русский",
+}
 ICONS = {k: os.getenv(f"EMOJI_{k.upper()}", "").strip() or None for k in ICON_KEYS}
+for _k, _v in db.execute("SELECT key, value FROM settings WHERE key LIKE 'emoji_%'").fetchall():
+    if _k[6:] in ICONS:
+        ICONS[_k[6:]] = _v or None
+
+
+def save_icon(key: str, emoji_id: str | None) -> None:
+    ICONS[key] = emoji_id
+    db.execute("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)", (f"emoji_{key}", emoji_id or ""))
+    db.commit()
+
+
+def admin_ids() -> set[int]:
+    ids = {r[0] for r in db.execute("SELECT user_id FROM admins").fetchall()}
+    if ADMIN_ID:
+        ids.add(ADMIN_ID)
+    return ids
+
+
+def is_admin(uid: int) -> bool:
+    return uid in admin_ids()
 USE_STYLES = os.getenv("BUTTON_STYLES", "1") != "0"  # rangli tugmalar
 
 
@@ -273,13 +306,14 @@ _last_admin_alert = 0.0
 
 async def alert_admin(bot: Bot, text: str) -> None:
     global _last_admin_alert
-    if not ADMIN_ID or time.time() - _last_admin_alert < 3600:
+    if not admin_ids() or time.time() - _last_admin_alert < 3600:
         return
     _last_admin_alert = time.time()
-    try:
-        await bot.send_message(ADMIN_ID, text)
-    except Exception:
-        log.exception("admin alert failed")
+    for aid in admin_ids():
+        try:
+            await bot.send_message(aid, text)
+        except Exception:
+            log.exception("admin alert failed")
 
 
 async def ask_claude(uid: int, lang: str, question: str) -> tuple[str, int, int]:
@@ -316,6 +350,154 @@ async def send_long(message: Message, text: str, **kw) -> None:
 
 # ---------- Handlerlar ----------
 router = Router()
+admin_router = Router()
+
+
+# ---------- Premium emoji: xato bo'lsa emojisiz qayta yuborish ----------
+_strict_icons: contextvars.ContextVar[bool] = contextvars.ContextVar("strict_icons", default=False)
+
+
+def _strip_markup(rm):
+    if isinstance(rm, InlineKeyboardMarkup):
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [b.model_copy(update={"icon_custom_emoji_id": None}) for b in row] for row in rm.inline_keyboard
+        ])
+    if isinstance(rm, ReplyKeyboardMarkup):
+        return rm.model_copy(update={"keyboard": [
+            [b.model_copy(update={"icon_custom_emoji_id": None}) for b in row] for row in rm.keyboard
+        ]})
+    return rm
+
+
+def _has_icons(rm) -> bool:
+    rows = getattr(rm, "inline_keyboard", None) or getattr(rm, "keyboard", None) or []
+    return any(getattr(b, "icon_custom_emoji_id", None) for row in rows for b in row)
+
+
+async def emoji_fallback(make_request, bot, method):
+    try:
+        return await make_request(bot, method)
+    except TelegramBadRequest as e:
+        rm = getattr(method, "reply_markup", None)
+        if _strict_icons.get() or rm is None or not _has_icons(rm):
+            raise
+        log.warning("Premium emoji rad etildi, emojisiz yuborilmoqda: %s", e.message)
+        return await make_request(bot, method.model_copy(update={"reply_markup": _strip_markup(rm)}))
+
+
+# ---------- /addpremium (faqat admin) ----------
+class PE(StatesGroup):
+    wait = State()
+
+
+def pe_list_kb() -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(
+            text=f"{ICON_NAMES[k]}  {'✅' if ICONS.get(k) else '➖'}",
+            callback_data=f"pe:{k}",
+            icon_custom_emoji_id=ICONS.get(k),
+        )]
+        for k in ICON_KEYS
+    ]
+    rows.append([InlineKeyboardButton(text="🗑 Hammasini o'chirish", callback_data="pe:__clear")])
+    rows.append([InlineKeyboardButton(text="✖️ Yopish", callback_data="pe:__close")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+PE_LIST_TEXT = (
+    "✨ Premium emoji sozlamalari\n\n"
+    "Qaysi tugmaga premium emoji qo'yamiz? ✅ — qo'yilgan, ➖ — qo'yilmagan.\n"
+    "Biror tugmada chiqmasa, uni qayta tanlab boshqa emoji yuboring."
+)
+
+
+@admin_router.message(Command("addpremium"))
+async def cmd_addpremium(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    if not admin_ids():
+        db.execute("INSERT OR IGNORE INTO admins(user_id) VALUES(?)", (uid,))
+        db.commit()
+        await message.answer("👑 Siz bot admini bo'ldingiz (birinchi bo'lib /addpremium yozgan odam).")
+    if not is_admin(uid):
+        return
+    await state.clear()
+    await message.answer(PE_LIST_TEXT, reply_markup=pe_list_kb())
+
+
+@admin_router.message(Command("cancel"))
+async def cmd_cancel(message: Message, state: FSMContext):
+    await state.clear()
+    lang = get_lang(message.from_user.id)
+    await message.answer("Bekor qilindi.", reply_markup=menu_kb(lang))
+
+
+@admin_router.callback_query(F.data.startswith("pe:"))
+async def cb_pe(cb: CallbackQuery, state: FSMContext):
+    if not is_admin(cb.from_user.id):
+        return await cb.answer()
+    key = cb.data[3:]
+    await cb.answer()
+    if key == "__close":
+        await state.clear()
+        return await cb.message.delete()
+    if key == "__clear":
+        for k in ICON_KEYS:
+            save_icon(k, None)
+        await state.clear()
+        return await cb.message.edit_text("🗑 Barcha premium emojilar o'chirildi.\n\n" + PE_LIST_TEXT, reply_markup=pe_list_kb())
+    if key.startswith("__del_"):
+        k = key[6:]
+        save_icon(k, None)
+        await state.clear()
+        return await cb.message.edit_text(f"🗑 «{ICON_NAMES[k]}» dan emoji olib tashlandi.\n\n" + PE_LIST_TEXT, reply_markup=pe_list_kb())
+    if key not in ICON_KEYS:
+        return
+    await state.set_state(PE.wait)
+    await state.update_data(pe_key=key)
+    extra = []
+    if ICONS.get(key):
+        extra = [[InlineKeyboardButton(text="🗑 Shu tugmadan olib tashlash", callback_data=f"pe:__del_{key}")]]
+    await cb.message.answer(
+        f"«{ICON_NAMES[key]}» tugmasi uchun 1 ta premium (animatsiyali) emoji yuboring.\n\nBekor qilish: /cancel",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=extra) if extra else None,
+    )
+
+
+@admin_router.message(PE.wait)
+async def pe_got(message: Message, state: FSMContext):
+    ents = [e for e in (message.entities or []) + (message.caption_entities or []) if e.type == "custom_emoji"]
+    sticker_emoji = None
+    if message.sticker and message.sticker.custom_emoji_id:
+        sticker_emoji = message.sticker.custom_emoji_id
+    emoji_id = ents[0].custom_emoji_id if ents else sticker_emoji
+    if not emoji_id:
+        return await message.answer(
+            "Bu oddiy emoji 🙂 Premium (animatsiyali) emoji yuboring.\n"
+            "Emoji panelida oddiy emojilardan pastda, ⭐ belgili to'plamlarda bo'ladi.\n\nBekor qilish: /cancel"
+        )
+    key = (await state.get_data()).get("pe_key")
+    # Telegram qabul qiladimi — namunani yuborib tekshiramiz
+    token = _strict_icons.set(True)
+    try:
+        preview = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+            text=strip_emoji(ICON_NAMES[key]), callback_data="pe:__noop", icon_custom_emoji_id=emoji_id)]])
+        await message.answer("Ko'rinishi 👇", reply_markup=preview)
+    except TelegramBadRequest as e:
+        return await message.answer(
+            f"❌ Telegram bu emojini tugmaga qo'yishga ruxsat bermadi.\n({e.message})\n\n"
+            "Bot egasida (BotFather'da botni ochgan akkauntda) Telegram Premium bo'lishi kerak. "
+            "Boshqa emoji yuborib ko'ring yoki /cancel"
+        )
+    finally:
+        _strict_icons.reset(token)
+    save_icon(key, emoji_id)
+    await state.clear()
+    lang = get_lang(message.from_user.id)
+    await message.answer(
+        f"✅ «{ICON_NAMES[key]}» tugmasiga saqlandi. Menyu yangilandi 👇",
+        reply_markup=menu_kb(lang),
+    )
+    await message.answer(PE_LIST_TEXT, reply_markup=pe_list_kb())
 
 
 @router.message(CommandStart())
@@ -454,7 +636,7 @@ async def regular_text(message: Message):
 # Admin uchun statistika
 @router.message(Command("stats"))
 async def cmd_stats(message: Message):
-    if message.from_user.id != ADMIN_ID:
+    if not is_admin(message.from_user.id):
         return
     users = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
     d = today().isoformat()
@@ -499,7 +681,7 @@ async def free_question(message: Message, bot: Bot):
         return
     if client is None:
         return await message.answer(t["unavailable"])
-    if used_today(uid) >= DAILY_LIMIT and uid != ADMIN_ID:
+    if used_today(uid) >= DAILY_LIMIT and not is_admin(uid):
         return await message.answer(t["limit"].format(limit=DAILY_LIMIT))
 
     await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
@@ -529,6 +711,8 @@ async def other_content(message: Message):
 async def main():
     bot = Bot(BOT_TOKEN)
     dp = Dispatcher()
+    bot.session.middleware(emoji_fallback)
+    dp.include_router(admin_router)
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
     log.info("Bot ishga tushdi. Model: %s", MODEL)
