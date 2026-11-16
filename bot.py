@@ -1,8 +1,11 @@
 """Shifokor yordamchi boti: ovulyatsiya kalkulyatori + Claude orqali savollarga javob."""
 
 import asyncio
+import base64
 import contextvars
 import html
+import io
+import json
 import logging
 import os
 import re
@@ -11,6 +14,8 @@ import time
 from collections import defaultdict, deque
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
+
+from PIL import Image
 
 import anthropic
 from aiogram import Bot, Dispatcher, F, Router
@@ -576,11 +581,11 @@ async def send_admins(bot: Bot, text: str, kb=None, photo: str | None = None, do
     for aid in ids:
         try:
             if photo:
-                await bot.send_photo(aid, photo, caption=text, reply_markup=kb)
+                await bot.send_photo(aid, photo, caption=text, reply_markup=kb, parse_mode="HTML")
             elif document:
-                await bot.send_document(aid, document, caption=text, reply_markup=kb)
+                await bot.send_document(aid, document, caption=text, reply_markup=kb, parse_mode="HTML")
             else:
-                await bot.send_message(aid, text, reply_markup=kb,
+                await bot.send_message(aid, text, reply_markup=kb, parse_mode="HTML",
                                        link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception:
             log.exception("send to admin %s failed", aid)
@@ -722,9 +727,18 @@ async def handle_receipt(message: Message, bot: Bot, state: FSMContext) -> None:
         "Kartangizga pul tushganini tekshiring."
     )
     if message.photo:
-        await send_admins(bot, caption, kb, photo=message.photo[-1].file_id)
+        fid, uniq, mime = message.photo[-1].file_id, message.photo[-1].file_unique_id, "image/jpeg"
     else:
-        await send_admins(bot, caption, kb, document=message.document.file_id)
+        fid, uniq, mime = message.document.file_id, message.document.file_unique_id, message.document.mime_type or ""
+    smart = auto_cheque_on() and (mime.startswith("image/") or mime == "application/pdf")
+    if smart:
+        caption += "\n\n🤖 <b>Chek avtomatik tekshirilmoqda…</b> To'g'ri bo'lsa, o'zi tasdiqlanadi va sizga xabar keladi."
+    if message.photo:
+        await send_admins(bot, caption, kb, photo=fid)
+    else:
+        await send_admins(bot, caption, kb, document=fid)
+    if smart:
+        asyncio.create_task(check_cheque(bot, pid, fid, uniq, mime))
 
 
 @paid_router.message(Pay.receipt, F.photo | F.document)
@@ -735,6 +749,138 @@ async def got_receipt(message: Message, bot: Bot, state: FSMContext):
 @paid_router.message(Pay.receipt, F.text, not_menu)
 async def receipt_text(message: Message):
     await message.answer(T[get_lang(message.from_user.id)]["pay_need_photo"])
+
+
+# ---------- 🧾 Aqlli chek tekshiruvi (Claude chekni o'qiydi) ----------
+CHEQUE_SYSTEM = (
+    "Sen to'lov cheklarini (Click, Payme, Uzum, Paynet, bank ilovalari skrinshotlari) o'qiydigan yordamchisan. "
+    "Faqat JSON qaytar. Ko'rmagan narsangni o'ylab topma — bilmasang null yoz."
+)
+CHEQUE_PROMPT = """Bu rasm to'lov chekimi? Undan ma'lumotlarni ol. Faqat shu JSON:
+{"is_receipt": true/false,
+ "success": true/false/null,
+ "amount": 5000,
+ "recipient_card_last4": "9012",
+ "recipient_name": "...",
+ "datetime": "2026-11-16 14:30",
+ "edited_signs": false}
+success — to'lov muvaffaqiyatli o'tganmi (Успешно, Muvaffaqiyatli, Выполнено, ✓).
+amount — o'tkazilgan asosiy summa so'mda, butun son (komissiyasiz); bo'lmasa null.
+recipient_card_last4 — QABUL QILUVCHI karta raqamining oxirgi 4 raqami; bo'lmasa null.
+datetime — chekdagi sana va vaqt (YYYY-MM-DD HH:MM); bo'lmasa null.
+edited_signs — tahrirlangan/soxta belgilar ko'rinsa true (shriftlar mos emas, raqamlar ustidan yozilgan)."""
+
+
+def _digits(x) -> str:
+    return re.sub(r"\D", "", str(x or ""))
+
+
+async def read_cheque(data: bytes, mime: str) -> dict:
+    if mime == "application/pdf":
+        block = {"type": "document", "source": {"type": "base64", "media_type": mime,
+                                                 "data": base64.b64encode(data).decode()}}
+    else:
+        im = Image.open(io.BytesIO(data)).convert("RGB")
+        im.thumbnail((1600, 1600))
+        out = io.BytesIO()
+        im.save(out, "JPEG", quality=90)
+        block = {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                              "data": base64.b64encode(out.getvalue()).decode()}}
+    resp = await client.messages.create(
+        model=MODEL, max_tokens=600, system=CHEQUE_SYSTEM,
+        messages=[{"role": "user", "content": [block, {"type": "text", "text": CHEQUE_PROMPT}]}],
+    )
+    raw = "".join(b.text for b in resp.content if b.type == "text")
+    write_log(0, "cheque", "", raw[:500], resp.usage.input_tokens or 0, resp.usage.output_tokens or 0, MODEL)
+    m = re.search(r"\{.*\}", raw, re.S)
+    return json.loads(m.group(0)) if m else {}
+
+
+async def approve_payment(bot: Bot, pid: int, note: str | None = None) -> bool:
+    """To'lovni tasdiqlaydi: mijozga 1 ta savol ochiladi. Allaqachon ko'rilgan bo'lsa False."""
+    row = db.execute("SELECT user_id, status FROM payments WHERE id=?", (pid,)).fetchone()
+    if not row or row[1] != "pending":
+        return False
+    uid = row[0]
+    db.execute("UPDATE payments SET status='ok' WHERE id=?", (pid,))
+    db.execute("UPDATE users SET credits = COALESCE(credits, 0) + 1 WHERE user_id=?", (uid,))
+    db.commit()
+    lang = get_lang(uid)
+    await clear_user_state(bot, uid)
+    await bot.send_message(uid, T[lang]["pay_ok"], reply_markup=menu_kb(lang))
+    if note:
+        await send_admins(bot, note)
+    return True
+
+
+async def check_cheque(bot: Bot, pid: int, file_id: str, unique_id: str, mime: str) -> None:
+    """Chekni Claude bilan o'qib tekshiradi: summa, karta, sana, takror chek. Hammasi mos — avtomatik tasdiq."""
+    reasons, info = [], {}
+    row = db.execute("SELECT amount, created_at FROM payments WHERE id=?", (pid,)).fetchone()
+    need, created = int(row[0]), datetime.fromisoformat(row[1])
+    try:
+        used = get_setting(f"cheque_{unique_id}")
+        if used:
+            reasons.append(f"bu chek avval ishlatilgan (#{used})")
+        buf = io.BytesIO()
+        await bot.download(file_id, destination=buf)
+        info = await asyncio.wait_for(read_cheque(buf.getvalue(), mime), timeout=90)
+        amount = int(_digits(info.get("amount")) or 0)
+        last4 = _digits(info.get("recipient_card_last4"))[-4:]
+        mine = _digits(get_setting("card"))[-4:]
+        if not info.get("is_receipt"):
+            reasons.append("rasm to'lov chekiga o'xshamaydi")
+        if info.get("success") is False:
+            reasons.append("chekda to'lov muvaffaqiyatli emas")
+        if info.get("edited_signs"):
+            reasons.append("tahrirlangan belgilar bor")
+        if amount < need - 500:
+            reasons.append(f"summa mos emas ({money(amount) if amount else 'o‘qilmadi'} / kerak {money(need)})")
+        if not last4 or last4 != mine:
+            reasons.append(f"qabul qiluvchi karta mos emas (*{last4 or '?'} / sizniki *{mine})")
+        dt = None
+        try:
+            dt = datetime.strptime(str(info.get("datetime"))[:16], "%Y-%m-%d %H:%M").replace(tzinfo=TZ)
+        except (TypeError, ValueError):
+            pass
+        if not dt:
+            reasons.append("chekda sana o'qilmadi")
+        elif not (now() - timedelta(hours=36) <= dt <= now() + timedelta(minutes=30)):
+            reasons.append("chek sanasi eski yoki noto'g'ri")
+        elif dt < created - timedelta(hours=3):
+            reasons.append(f"chek so'rovdan ancha oldin qilingan ({info.get('datetime')}) — eski chek bo'lishi mumkin")
+    except Exception as e:
+        log.exception("cheque check failed")
+        reasons.append(f"chek o'qilmadi ({str(e)[:120]})")
+
+    status = db.execute("SELECT status FROM payments WHERE id=?", (pid,)).fetchone()[0]
+    if status != "pending":  # admin allaqachon qaror qilgan
+        return
+    if reasons:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Pul keldi", callback_data=f"adm:pay:ok:{pid}", style=style("success")),
+             InlineKeyboardButton(text="❌ Kelmadi", callback_data=f"adm:pay:no:{pid}", style=style("danger"))],
+            [InlineKeyboardButton(text="🚫 Bloklash (yolg'on chek)", callback_data=f"adm:ban:{pid}")],
+        ])
+        await send_admins(
+            bot,
+            f"🧾 #{pid} — <b>chek avtomatik tasdiqlanmadi</b>:\n• "
+            + "\n• ".join(html.escape(r, quote=False) for r in reasons)
+            + "\n\nKartangizni tekshirib, o'zingiz qaror qiling 👇",
+            kb,
+        )
+        return
+    set_setting(f"cheque_{unique_id}", str(pid))
+    await approve_payment(
+        bot, pid,
+        f"✅ #{pid} — <b>chek avtomatik tasdiqlandi</b>: {money(int(_digits(info.get('amount'))))} so'm → karta "
+        f"*{_digits(get_setting('card'))[-4:]}, {html.escape(str(info.get('datetime')))}.\n"
+        "Vaqtingiz bo'lganda kartangizga tushganini tekshirib qo'ying.",
+    )
+
+
+def auto_cheque_on() -> bool:
+    return client is not None and get_setting("auto_cheque") != "off"
 
 
 # ---------- Admin: tasdiqlash tugmalari ----------
@@ -791,13 +937,9 @@ async def cb_admin(cb: CallbackQuery, bot: Bot):
             return await _mark_done(cb, "ℹ️ Allaqachon ko'rib chiqilgan")
         lang = get_lang(uid)
         if parts[1] == "pay" and parts[2] == "ok":
-            db.execute("UPDATE payments SET status='ok' WHERE id=?", (pid,))
-            db.execute("UPDATE users SET credits = COALESCE(credits, 0) + 1 WHERE user_id=?", (uid,))
-            db.commit()
             await cb.answer("✅ Tasdiqlandi")
             await _mark_done(cb, f"✅ To'lov tasdiqlandi ({html.escape(who)})")
-            await clear_user_state(bot, uid)
-            await bot.send_message(uid, T[lang]["pay_ok"], reply_markup=menu_kb(lang))
+            await approve_payment(bot, pid)
         elif parts[1] == "pay":
             db.execute("UPDATE payments SET status='no' WHERE id=?", (pid,))
             db.commit()
@@ -821,6 +963,7 @@ ADMIN_HELP = (
     "/setcard <code>8600123412341234 Ism Familiya</code> — to'lov kartasi\n"
     "/setprice <code>10000 5000</code> — narx: oddiy va obunachi\n"
     "/addcredit <code>ID 1</code> — foydalanuvchiga bepul savol berish\n"
+    "/autochek <code>on</code> | <code>off</code> — chekni avtomatik (aqlli) tekshirish\n"
     "/stats — statistika\n"
     "/addpremium — tugmalarga premium emoji\n\n"
     "Obuna so'rovlari va to'lov cheklari shu yerga ✅/❌ tugmalari bilan keladi."
@@ -849,10 +992,23 @@ async def cmd_settings(message: Message):
         f"💳 Karta: <code>{html.escape(get_setting('card') or '—')}</code>\n"
         f"👤 Egasi: {html.escape(get_setting('holder') or '—')}\n"
         f"💵 Narx: {money(get_setting('price_full'))} so'm, obunachiga {money(get_setting('price_sub'))} so'm\n"
+        f"🤖 Aqlli chek tekshiruvi: {'yoqilgan' if auto_cheque_on() else 'o‘chirilgan' + ('' if client else ' (Claude kaliti yo‘q)')}\n"
         f"👑 Adminlar soni: {len(admin_ids())}\n\n" + ADMIN_HELP,
         parse_mode="HTML",
         link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
+
+
+@admin_router.message(Command("autochek", "autocheck"))
+async def cmd_autochek(message: Message, command: CommandObject):
+    if not is_admin(message.from_user.id):
+        return
+    arg = (command.args or "").strip().lower()
+    if arg in ("on", "off"):
+        set_setting("auto_cheque", arg)
+    state_txt = "yoqilgan ✅" if auto_cheque_on() else "o'chirilgan ❌"
+    extra = "" if client else "\n⚠️ Claude API kaliti qo'yilmagan — kalit qo'yilgach ishlaydi."
+    await message.answer(f"🤖 Aqlli chek tekshiruvi: {state_txt}{extra}\n\nYoqish: /autochek on\nO'chirish: /autochek off")
 
 
 @admin_router.message(Command("setinsta"))
