@@ -79,9 +79,11 @@ db.executescript(
 # users jadvaliga yangi ustunlar (eski bazada bo'lmasa qo'shiladi)
 _cols = {r[1] for r in db.execute("PRAGMA table_info(users)").fetchall()}
 for _col, _type in [("sub", "TEXT DEFAULT ''"), ("ig", "TEXT"), ("credits", "INTEGER DEFAULT 0"),
-                    ("banned", "INTEGER DEFAULT 0")]:
+                    ("banned", "INTEGER DEFAULT 0"), ("calc_paid", "INTEGER DEFAULT 0")]:
     if _col not in _cols:
         db.execute(f"ALTER TABLE users ADD COLUMN {_col} {_type}")
+if "purpose" not in {r[1] for r in db.execute("PRAGMA table_info(payments)").fetchall()}:
+    db.execute("ALTER TABLE payments ADD COLUMN purpose TEXT DEFAULT 'question'")
 db.commit()
 
 DEFAULT_SETTINGS = {
@@ -90,6 +92,7 @@ DEFAULT_SETTINGS = {
     "holder": os.getenv("CARD_HOLDER", ""),
     "price_full": os.getenv("PRICE_FULL", "10000"),
     "price_sub": os.getenv("PRICE_SUB", "5000"),
+    "price_calc": os.getenv("PRICE_CALC", "10000"),
 }
 
 
@@ -616,12 +619,20 @@ def insta_kb(lang: str) -> InlineKeyboardMarkup:
 
 async def ensure_sub(message: Message, lang: str, uid: int) -> bool:
     """Obuna bo'lmagan bo'lsa, obuna bo'lishni so'raydi va False qaytaradi."""
-    if not insta_url() or privileged(uid) or is_subscribed(uid):
+    if not insta_url() or privileged(uid) or is_subscribed(uid) or user_field(uid, "calc_paid", 0):
         return True
     if user_field(uid, "sub", "") == "pending":
         await message.answer(T[lang]["sub_pending"])
         return False
-    await message.answer(T[lang]["sub_need"], reply_markup=insta_kb(lang))
+    t = T[lang]
+    kb = insta_kb(lang)
+    if get_setting("card").strip():
+        kb.inline_keyboard.append([ibtn(t["btn_pay_calc"].format(price=money(get_setting("price_calc"))),
+                                        "pay:calc", st="primary")])
+        text = t["sub_need"] + "\n\n" + t["sub_or_pay"].format(price=money(get_setting("price_calc")))
+    else:
+        text = t["sub_need"]
+    await message.answer(text, reply_markup=kb)
     return False
 
 
@@ -692,7 +703,7 @@ async def got_ig(message: Message, state: FSMContext, bot: Bot):
     )
 
 
-async def show_payment(message: Message, state: FSMContext, lang: str, uid: int) -> None:
+async def show_payment(message: Message, state: FSMContext, lang: str, uid: int, purpose: str = "question") -> None:
     t = T[lang]
     card = get_setting("card").strip()
     if not card:
@@ -703,12 +714,19 @@ async def show_payment(message: Message, state: FSMContext, lang: str, uid: int)
         await message.answer(t["pay_pending"])
         return
     sub = is_subscribed(uid)
+    card_txt, holder = f"<code>{html.escape(card)}</code>", html.escape(get_setting("holder") or "—")
+    if purpose == "calc":
+        await state.set_state(Pay.receipt)
+        await state.update_data(purpose="calc")
+        await message.answer(t["pay_info_calc"].format(price=money(get_setting("price_calc")), card=card_txt,
+                                                       holder=holder), parse_mode="HTML")
+        return
     price = get_setting("price_sub") if sub else get_setting("price_full")
     text = t["pay_info"].format(
         price=money(price),
         discount=t["pay_discount"] if sub else "",
-        card=f"<code>{html.escape(card)}</code>",
-        holder=html.escape(get_setting("holder") or "—"),
+        card=card_txt,
+        holder=holder,
     )
     kb = None
     if not sub and insta_url():
@@ -718,13 +736,22 @@ async def show_payment(message: Message, state: FSMContext, lang: str, uid: int)
             [ibtn(t["btn_subbed"], "sub:req", st="success")],
         ])
     await state.set_state(Pay.receipt)
+    await state.update_data(purpose="question")
     await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@paid_router.callback_query(F.data == "pay:calc")
+async def cb_pay_calc(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
+    uid = cb.from_user.id
+    await show_payment(cb.message, state, get_lang(uid), uid, purpose="calc")
 
 
 async def handle_receipt(message: Message, bot: Bot, state: FSMContext) -> None:
     uid = message.from_user.id
     lang = get_lang(uid)
     t = T[lang]
+    purpose = (await state.get_data()).get("purpose", "question")
     await state.clear()
     if user_field(uid, "banned", 0):
         await message.answer(t["pay_no"])
@@ -733,10 +760,13 @@ async def handle_receipt(message: Message, bot: Bot, state: FSMContext) -> None:
         await message.answer(t["pay_pending"])
         return
     sub = is_subscribed(uid)
-    amount = int(get_setting("price_sub") if sub else get_setting("price_full"))
+    if purpose == "calc":
+        amount = int(get_setting("price_calc"))
+    else:
+        amount = int(get_setting("price_sub") if sub else get_setting("price_full"))
     cur = db.execute(
-        "INSERT INTO payments(user_id, amount, status, created_at) VALUES(?,?,?,?)",
-        (uid, amount, "pending", now().isoformat()),
+        "INSERT INTO payments(user_id, amount, status, created_at, purpose) VALUES(?,?,?,?,?)",
+        (uid, amount, "pending", now().isoformat(), purpose),
     )
     db.commit()
     pid = cur.lastrowid
@@ -749,7 +779,9 @@ async def handle_receipt(message: Message, bot: Bot, state: FSMContext) -> None:
     caption = (
         f"💰 <b>To'lov cheki #{pid}</b>\n\n"
         f"👤 {user_label(message.from_user)}\n"
-        f"💵 Summa: <b>{money(amount)} so'm</b> ({'obunachi, 50%' if sub else 'oddiy narx'})\n\n"
+        f"🎯 Nima uchun: <b>{'ovulyatsiya hisoblash' if purpose == 'calc' else 'savolga javob'}</b>\n"
+        f"💵 Summa: <b>{money(amount)} so'm</b>"
+        + ("" if purpose == "calc" else f" ({'obunachi, 50%' if sub else 'oddiy narx'})") + "\n\n"
         "Kartangizga pul tushganini tekshiring."
     )
     if message.photo:
@@ -824,16 +856,20 @@ async def read_cheque(data: bytes, mime: str) -> dict:
 
 async def approve_payment(bot: Bot, pid: int, note: str | None = None) -> bool:
     """To'lovni tasdiqlaydi: mijozga 1 ta savol ochiladi. Allaqachon ko'rilgan bo'lsa False."""
-    row = db.execute("SELECT user_id, status FROM payments WHERE id=?", (pid,)).fetchone()
+    row = db.execute("SELECT user_id, status, COALESCE(purpose, 'question') FROM payments WHERE id=?",
+                     (pid,)).fetchone()
     if not row or row[1] != "pending":
         return False
-    uid = row[0]
+    uid, purpose = row[0], row[2]
     db.execute("UPDATE payments SET status='ok' WHERE id=?", (pid,))
-    db.execute("UPDATE users SET credits = COALESCE(credits, 0) + 1 WHERE user_id=?", (uid,))
+    if purpose == "calc":
+        db.execute("UPDATE users SET calc_paid = 1 WHERE user_id=?", (uid,))
+    else:
+        db.execute("UPDATE users SET credits = COALESCE(credits, 0) + 1 WHERE user_id=?", (uid,))
     db.commit()
     lang = get_lang(uid)
     await clear_user_state(bot, uid)
-    await bot.send_message(uid, T[lang]["pay_ok"], reply_markup=menu_kb(lang))
+    await bot.send_message(uid, T[lang]["pay_ok_calc" if purpose == "calc" else "pay_ok"], reply_markup=menu_kb(lang))
     if note:
         await send_admins(bot, note)
     return True
@@ -988,7 +1024,8 @@ ADMIN_HELP = (
     "/settings — joriy sozlamalar\n"
     "/setinsta <code>https://instagram.com/username</code> — Instagram sahifa\n"
     "/setcard <code>8600123412341234 Ism Familiya</code> — to'lov kartasi\n"
-    "/setprice <code>10000 5000</code> — narx: oddiy va obunachi\n"
+    "/setprice <code>10000 5000</code> — savol narxi: oddiy va obunachi\n"
+    "/setcalcprice <code>10000</code> — obunasiz ovulyatsiya hisoblash narxi\n"
     "/addcredit <code>ID 1</code> — foydalanuvchiga bepul savol berish\n"
     "/autochek <code>on</code> | <code>off</code> — chekni avtomatik (aqlli) tekshirish\n"
     "/test <code>on</code> | <code>off</code> — o'zingizni oddiy mijoz sifatida sinash\n"
@@ -1020,7 +1057,8 @@ async def cmd_settings(message: Message):
         f"📷 Instagram: {html.escape(insta_url() or '— (obuna tekshiruvi o‘chiq)')}\n"
         f"💳 Karta: <code>{html.escape(get_setting('card') or '—')}</code>\n"
         f"👤 Egasi: {html.escape(get_setting('holder') or '—')}\n"
-        f"💵 Narx: {money(get_setting('price_full'))} so'm, obunachiga {money(get_setting('price_sub'))} so'm\n"
+        f"💵 Savol: {money(get_setting('price_full'))} so'm, obunachiga {money(get_setting('price_sub'))} so'm\n"
+        f"🗓 Obunasiz hisoblash: {money(get_setting('price_calc'))} so'm\n"
         f"🤖 Aqlli chek tekshiruvi: {'yoqilgan' if auto_cheque_on() else 'o‘chirilgan' + ('' if client else ' (Claude kaliti yo‘q)')}\n"
         f"👑 Adminlar soni: {len(admin_ids())}\n\n" + ADMIN_HELP,
         parse_mode="HTML",
@@ -1037,7 +1075,7 @@ async def cmd_test(message: Message, command: CommandObject, state: FSMContext):
     if arg in ("on", "off"):
         db.execute("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)", (f"testmode_{uid}", arg))
         if arg == "on":  # toza mijoz sifatida boshlash
-            db.execute("UPDATE users SET sub='', credits=0 WHERE user_id=?", (uid,))
+            db.execute("UPDATE users SET sub='', credits=0, calc_paid=0 WHERE user_id=?", (uid,))
             db.execute("UPDATE payments SET status='test' WHERE user_id=? AND status='pending'", (uid,))
         db.commit()
         await state.clear()
@@ -1121,6 +1159,17 @@ async def cmd_setprice(message: Message, command: CommandObject):
     set_setting("price_full", nums[0])
     set_setting("price_sub", nums[1])
     await message.answer(f"✅ Narx: {money(nums[0])} so'm, obunachiga {money(nums[1])} so'm")
+
+
+@admin_router.message(Command("setcalcprice"))
+async def cmd_setcalcprice(message: Message, command: CommandObject):
+    if not is_admin(message.from_user.id):
+        return
+    nums = re.findall(r"\d+", (command.args or "").replace(" 000", "000"))
+    if len(nums) != 1:
+        return await message.answer("Masalan: /setcalcprice 10000")
+    set_setting("price_calc", nums[0])
+    await message.answer(f"✅ Obunasiz hisoblash narxi: {money(nums[0])} so'm")
 
 
 @admin_router.message(Command("addcredit"))

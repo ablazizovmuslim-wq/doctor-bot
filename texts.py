@@ -94,10 +94,19 @@ T = {
             "so'ng «✅ Obuna bo'ldim» tugmasini bosing 👇"
         ),
         "btn_insta_go": "📸 Instagram'ga o'tib obuna bo'lish",
+        "btn_pay_calc": "💳 {price} so'm to'lab hisoblash",
+        "sub_or_pay": "💳 Yoki obuna bo'lmasdan, {price} so'm to'lab hisoblatishingiz mumkin.",
+        "pay_info_calc": (
+            "🗓 Ovulyatsiya kunini hisoblash narxi: {price} so'm\n\n"
+            "💳 Karta: {card}\n"
+            "👤 {holder}\n\n"
+            "To'lovni qilgach, chekni (skrinshot) shu yerga yuboring 👇"
+        ),
+        "pay_ok_calc": "✅ To'lov tasdiqlandi! Rahmat 🌸\n\nEndi «🗓 Ovulyatsiyani hisoblash» tugmasini bosing.",
         "btn_get_discount": "🎁 Obuna bo'lib 50% chegirma olish",
         "pay_not_ready": "Kechirasiz, to'lov hozircha sozlanmagan. Keyinroq urinib ko'ring 🙏",
         "pay_need_photo": "Iltimos, to'lov chekini rasm (skrinshot) ko'rinishida yuboring 📸",
-        "pay_sent": "⏳ Chek yuborildi. To'lov tasdiqlangach, sizga xabar keladi va savolingizni yozasiz.",
+        "pay_sent": "⏳ Chek yuborildi. To'lov tasdiqlangach, sizga xabar keladi.",
         "pay_pending": "⏳ To'lovingiz tekshirilmoqda. Tasdiqlangach, sizga xabar keladi.",
         "pay_ok": "✅ To'lov tasdiqlandi! Rahmat 🌸\n\nEndi savolingizni batafsil yozing ✍️",
         "pay_no": "❌ To'lov topilmadi. Agar to'lagan bo'lsangiz, chekni qaytadan yuboring.",
@@ -189,10 +198,19 @@ T = {
             "затем нажмите «✅ Я подписался(ась)» 👇"
         ),
         "btn_insta_go": "📸 Перейти в Instagram и подписаться",
+        "btn_pay_calc": "💳 Оплатить {price} сум и рассчитать",
+        "sub_or_pay": "💳 Или без подписки — оплатите {price} сум и получите расчёт.",
+        "pay_info_calc": (
+            "🗓 Стоимость расчёта дня овуляции: {price} сум\n\n"
+            "💳 Карта: {card}\n"
+            "👤 {holder}\n\n"
+            "После оплаты отправьте сюда чек (скриншот) 👇"
+        ),
+        "pay_ok_calc": "✅ Оплата подтверждена! Спасибо 🌸\n\nТеперь нажмите «🗓 Рассчитать овуляцию».",
         "btn_get_discount": "🎁 Подписаться и получить скидку 50%",
         "pay_not_ready": "Извините, оплата пока не настроена. Попробуйте позже 🙏",
         "pay_need_photo": "Пожалуйста, отправьте чек об оплате в виде фото (скриншота) 📸",
-        "pay_sent": "⏳ Чек отправлен. После подтверждения оплаты вам придёт сообщение, и вы напишете вопрос.",
+        "pay_sent": "⏳ Чек отправлен. После подтверждения оплаты вам придёт сообщение.",
         "pay_pending": "⏳ Ваша оплата проверяется. После подтверждения вам придёт сообщение.",
         "pay_ok": "✅ Оплата подтверждена! Спасибо 🌸\n\nТеперь подробно напишите ваш вопрос ✍️",
         "pay_no": "❌ Оплата не найдена. Если вы оплатили, отправьте чек ещё раз.",
