@@ -205,6 +205,7 @@ def admin_ids() -> set[int]:
     ids = {r[0] for r in db.execute("SELECT user_id FROM admins").fetchall()}
     if ADMIN_ID:
         ids.add(ADMIN_ID)
+    ids |= {int(x) for x in re.findall(r"\d+", os.getenv("ADMIN_IDS", ""))}
     return ids
 
 
@@ -652,19 +653,31 @@ async def got_ig(message: Message, state: FSMContext, bot: Bot):
         return await message.answer(T[lang]["bad_ig"])
     ig = m.group(1).strip(".")
     set_user_field(uid, "ig", ig)
-    set_user_field(uid, "sub", "pending")
     await state.clear()
-    await message.answer(T[lang]["sub_sent"], reply_markup=menu_kb(lang))
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Obuna bo'lgan", callback_data=f"adm:sub:ok:{uid}", style=style("success")),
-        InlineKeyboardButton(text="❌ Obuna bo'lmagan", callback_data=f"adm:sub:no:{uid}", style=style("danger")),
-    ]])
+    followers = insta_url().rstrip("/") + "/followers/"
+    if get_setting("sub_mode") == "manual":
+        set_user_field(uid, "sub", "pending")
+        await message.answer(T[lang]["sub_sent"], reply_markup=menu_kb(lang))
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Obuna bo'lgan", callback_data=f"adm:sub:ok:{uid}", style=style("success")),
+            InlineKeyboardButton(text="❌ Obuna bo'lmagan", callback_data=f"adm:sub:no:{uid}", style=style("danger")),
+        ]])
+        head, tail = "📸 <b>Yangi obuna so'rovi</b>", "Tasdiqlasangiz, mijozga hisoblash ochiladi."
+    else:
+        # Avto rejim: darhol ochamiz, adminlar keyin tekshirib bekor qilishi mumkin
+        set_user_field(uid, "sub", "ok")
+        await message.answer(T[lang]["sub_ok"], reply_markup=menu_kb(lang))
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="❌ Obuna yo'q — bekor qilish", callback_data=f"adm:sub:no:{uid}",
+                                 style=style("danger")),
+        ]])
+        head, tail = "📸 <b>Yangi obunachi</b> (avtomatik ochildi)", "Obuna bo'lmagan bo'lsa — ❌ ni bosing."
     await send_admins(
         bot,
-        "📸 <b>Yangi obuna so'rovi</b>\n\n"
+        f"{head}\n\n"
         f"👤 {user_label(message.from_user)}\n"
         f"📷 Instagram: https://instagram.com/{html.escape(ig)}\n\n"
-        "Profilni oching: «Follow back / Подписаться в ответ» chiqsa — obuna bo'lgan.",
+        f"Tekshirish: {followers} → qidiruvga <code>{html.escape(ig)}</code> yozing.\n{tail}",
         kb,
     )
 
@@ -906,7 +919,8 @@ async def cb_admin(cb: CallbackQuery, bot: Bot):
 
     if parts[1] == "sub":
         action, uid = parts[2], int(parts[3])
-        if user_field(uid, "sub", "") != "pending":
+        cur = user_field(uid, "sub", "")
+        if (action == "ok" and cur != "pending") or (action == "no" and cur not in ("pending", "ok")):
             await cb.answer("Bu so'rov allaqachon ko'rib chiqilgan", show_alert=True)
             return await _mark_done(cb, "ℹ️ Allaqachon ko'rib chiqilgan")
         lang = get_lang(uid)
@@ -964,6 +978,7 @@ ADMIN_HELP = (
     "/setprice <code>10000 5000</code> — narx: oddiy va obunachi\n"
     "/addcredit <code>ID 1</code> — foydalanuvchiga bepul savol berish\n"
     "/autochek <code>on</code> | <code>off</code> — chekni avtomatik (aqlli) tekshirish\n"
+    "/obuna <code>auto</code> | <code>manual</code> — Instagram obunani darhol ochish yoki qo'lda tasdiqlash\n"
     "/stats — statistika\n"
     "/addpremium — tugmalarga premium emoji\n\n"
     "Obuna so'rovlari va to'lov cheklari shu yerga ✅/❌ tugmalari bilan keladi."
@@ -996,6 +1011,22 @@ async def cmd_settings(message: Message):
         f"👑 Adminlar soni: {len(admin_ids())}\n\n" + ADMIN_HELP,
         parse_mode="HTML",
         link_preview_options=LinkPreviewOptions(is_disabled=True),
+    )
+
+
+@admin_router.message(Command("obuna"))
+async def cmd_obuna(message: Message, command: CommandObject):
+    if not is_admin(message.from_user.id):
+        return
+    arg = (command.args or "").strip().lower()
+    if arg in ("auto", "manual"):
+        set_setting("sub_mode", arg)
+    mode = get_setting("sub_mode") or "auto"
+    await message.answer(
+        f"📸 Obuna tekshiruvi: <b>{'avto' if mode != 'manual' else 'qo‘lda'}</b>\n\n"
+        "/obuna auto — mijoz username yozishi bilan hisoblash ochiladi, sizga ❌ bekor qilish tugmasi keladi\n"
+        "/obuna manual — siz ✅ bosmaguningizcha ochilmaydi",
+        parse_mode="HTML",
     )
 
 
