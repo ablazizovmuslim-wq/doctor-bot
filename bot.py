@@ -48,7 +48,8 @@ from texts import CHOOSE_LANG, T, WEEKDAYS
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()  # bo'sh bo'lsa, faqat kalkulyator ishlaydi
 MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-5-5")
-MAX_TOKENS = int(os.getenv("MAX_TOKENS", "900"))
+MAX_TOKENS = max(int(os.getenv("MAX_TOKENS", "2000")), 2000)  # batafsil javob uchun kamida 2000
+VIDEO_FRAMES = int(os.getenv("VIDEO_FRAMES", "6"))  # videodan nechta kadr olinadi
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0") or 0)
 DAILY_LIMIT = int(os.getenv("DAILY_LIMIT", "15"))
 HISTORY_PAIRS = int(os.getenv("HISTORY_PAIRS", "4"))
@@ -450,11 +451,12 @@ async def alert_admin(bot: Bot, text: str) -> None:
             log.exception("admin alert failed")
 
 
-async def ask_claude(uid: int, lang: str, question: str) -> tuple[str, int, int]:
+async def ask_claude(uid: int, lang: str, question: str, media: list | None = None) -> tuple[str, int, int]:
+    """question — tarixga yoziladigan matn; media — shu savoldagi rasm/PDF/video kadrlari (faqat hozir yuboriladi)."""
     messages = []
     for q, a in histories[uid]:
         messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
-    messages.append({"role": "user", "content": question})
+    messages.append({"role": "user", "content": (media or []) + [{"type": "text", "text": question}]})
 
     lang_name = "узбекский (латиница)" if lang == "uz" else "русский"
     resp = await client.messages.create(
@@ -480,6 +482,90 @@ async def ask_claude(uid: int, lang: str, question: str) -> tuple[str, int, int]
 async def send_long(message: Message, text: str, **kw) -> None:
     for i in range(0, len(text), 4000):
         await message.answer(text[i:i + 4000], **kw)
+
+
+# ---------- 📷 Rasm / PDF / video savollar ----------
+TG_MAX_DOWNLOAD = 20 * 1024 * 1024  # Bot API faqat 20 MB gacha faylni yuklab beradi
+
+
+def _jpeg_block(data: bytes, size: int = 1568) -> dict:
+    im = Image.open(io.BytesIO(data)).convert("RGB")
+    im.thumbnail((size, size))
+    out = io.BytesIO()
+    im.save(out, "JPEG", quality=88)
+    return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                        "data": base64.b64encode(out.getvalue()).decode()}}
+
+
+async def _video_frames(data: bytes, duration: int, n: int) -> list[bytes]:
+    """Videodan teng oraliqda n ta kadr oladi (ffmpeg — imageio-ffmpeg paketidan)."""
+    import tempfile
+    import imageio_ffmpeg
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    frames = []
+    with tempfile.TemporaryDirectory() as d:
+        src = os.path.join(d, "v.mp4")
+        with open(src, "wb") as f:
+            f.write(data)
+        if duration:
+            times = [float(duration) * (i + 0.5) / n for i in range(n)]
+        else:  # davomiyligi noma'lum (fayl sifatida yuborilgan) — har 2 soniyada; video qisqa bo'lsa kamroq kadr chiqadi
+            times = [i * 2.0 for i in range(n)]
+        for i, ts in enumerate(times):
+            dst = os.path.join(d, f"f{i}.jpg")
+            proc = await asyncio.create_subprocess_exec(
+                ffmpeg, "-loglevel", "error", "-ss", f"{ts:.2f}", "-i", src, "-frames:v", "1", "-q:v", "3", dst,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+            await asyncio.wait_for(proc.wait(), timeout=30)
+            if os.path.exists(dst):
+                with open(dst, "rb") as f:
+                    frames.append(f.read())
+    return frames
+
+
+async def media_blocks(message: Message, bot: Bot) -> tuple[list, str] | None:
+    """Xabardagi rasm/PDF/videoni Claude uchun bloklarga aylantiradi.
+    Qaytaradi: (bloklar, tarix uchun belgi) | None — qo'llab-quvvatlanmaydi. Juda katta bo'lsa ValueError('big')."""
+    async def download(file_id: str, size: int | None) -> bytes:
+        if size and size > TG_MAX_DOWNLOAD:
+            raise ValueError("big")
+        buf = io.BytesIO()
+        await bot.download(file_id, destination=buf)
+        return buf.getvalue()
+
+    if message.photo:
+        p = message.photo[-1]
+        return [_jpeg_block(await download(p.file_id, p.file_size))], "[фото]"
+    doc = message.document
+    if doc:
+        mime = (doc.mime_type or "").lower()
+        if mime.startswith("image/"):
+            return [_jpeg_block(await download(doc.file_id, doc.file_size))], "[фото]"
+        if mime == "application/pdf":
+            data = await download(doc.file_id, doc.file_size)
+            return [{"type": "document", "source": {"type": "base64", "media_type": mime,
+                                                     "data": base64.b64encode(data).decode()}}], "[PDF-файл]"
+        if not mime.startswith("video/"):
+            return None
+    vid = message.video or message.video_note or message.animation or doc
+    if vid:
+        data = await download(vid.file_id, vid.file_size)
+        duration = getattr(vid, "duration", 0) or 0
+        try:
+            frames = await _video_frames(data, duration, max(1, min(VIDEO_FRAMES, 10)))
+        except Exception:
+            log.exception("video frames failed")
+            frames = []
+        if not frames:  # ffmpeg ishlamasa — Telegram bergan kichik rasm
+            thumb = getattr(vid, "thumbnail", None)
+            if not thumb:
+                return None
+            frames = [await download(thumb.file_id, thumb.file_size)]
+        blocks = [_jpeg_block(f, 1024) for f in frames]
+        blocks.append({"type": "text", "text": f"(Выше — {len(frames)} кадров из видео клиента длительностью "
+                                               f"{duration} сек, по порядку. Звука нет.)"})
+        return blocks, "[видео]"
+    return None
 
 
 # ---------- Handlerlar ----------
@@ -1555,14 +1641,19 @@ async def cmd_stats(message: Message):
 # Erkin savol → Claude
 @router.message(StateFilter(None), F.text)
 async def free_question(message: Message, bot: Bot, state: FSMContext):
+    if message.text.startswith("/"):
+        return
+    await answer_question(message, bot, message.text[:2000])
+
+
+async def answer_question(message: Message, bot: Bot, question: str, media_msg: bool = False):
+    """Savolga Claude javobi. media_msg=True — xabarda rasm/PDF/video bor."""
     uid = message.from_user.id
     if not has_lang(uid):
         save_user(message)
         return await message.answer(CHOOSE_LANG, reply_markup=lang_kb())
     lang = get_lang(uid)
     t = T[lang]
-    if message.text.startswith("/"):
-        return
     admin = privileged(uid)
     if not can_ask(uid):
         return await show_packages(message, lang, uid, "need_q")
@@ -1573,8 +1664,21 @@ async def free_question(message: Message, bot: Bot, state: FSMContext):
         return await message.answer(t["limit"].format(limit=DAILY_LIMIT))
 
     await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    media, tag = None, ""
+    if media_msg:
+        try:
+            got = await media_blocks(message, bot)
+        except ValueError:
+            return await message.answer(t["media_big"])
+        except Exception:
+            log.exception("media download failed")
+            return await message.answer(t["error"])
+        if not got:
+            return await message.answer(t["media_unsupported"])
+        media, tag = got
+        question = f"{tag} " + (question or t["media_no_caption"])
     try:
-        answer, in_tok, out_tok = await ask_claude(uid, lang, message.text[:2000])
+        answer, in_tok, out_tok = await ask_claude(uid, lang, question, media)
     except anthropic.APIStatusError as e:
         log.error("Claude API error %s: %s", e.status_code, e.message)
         msg = str(e.message).lower()
@@ -1587,7 +1691,7 @@ async def free_question(message: Message, bot: Bot, state: FSMContext):
         return await message.answer(t["error"])
 
     add_usage(uid)
-    write_log(uid, "question", message.text, answer, in_tok, out_tok, MODEL)
+    write_log(uid, "question", question, answer, in_tok, out_tok, MODEL)
     if vip and not admin and answer:
         answer += t["vip_left"].format(until=vip_until(uid).strftime("%d.%m.%Y"))
     elif not admin and answer:
@@ -1601,10 +1705,18 @@ async def free_question(message: Message, bot: Bot, state: FSMContext):
 
 @router.message()
 async def other_content(message: Message, bot: Bot, state: FSMContext):
-    # Holatsiz yuborilgan rasm/fayl — ehtimol to'lov cheki
-    if (message.photo or message.document) and not privileged(message.from_user.id):
-        return await handle_receipt(message, bot, state)
-    await message.answer(T[get_lang(message.from_user.id)]["text_only"])
+    t = T[get_lang(message.from_user.id)]
+    cur = await state.get_state()
+    if cur == Pay.receipt.state:  # chek kutilyapti, lekin rasm/fayl emas
+        return await message.answer(t["pay_need_photo"])
+    if cur is not None:  # hisoblash savollari paytida
+        return await message.answer(t["text_only"])
+    # Rasm / PDF / video — bu savol (chek emas). Chek faqat paket tanlangandan keyin qabul qilinadi.
+    if message.photo or message.document or message.video or message.video_note or message.animation:
+        return await answer_question(message, bot, (message.caption or "")[:2000], media_msg=True)
+    if message.voice or message.audio:
+        return await message.answer(t["voice_no"])
+    await message.answer(t["text_only"])
 
 
 DP = Dispatcher()
