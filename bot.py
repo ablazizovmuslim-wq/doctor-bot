@@ -2,6 +2,7 @@
 
 import asyncio
 import contextvars
+import html
 import logging
 import os
 import re
@@ -15,7 +16,7 @@ import anthropic
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.enums import ChatAction
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.filters import Command, CommandStart, StateFilter
+from aiogram.filters import Command, CommandObject, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -23,6 +24,7 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
+    LinkPreviewOptions,
     Message,
     ReplyKeyboardMarkup,
 )
@@ -64,9 +66,55 @@ db.executescript(
     CREATE TABLE IF NOT EXISTS log(
         id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, kind TEXT,
         question TEXT, answer TEXT, in_tok INTEGER, out_tok INTEGER, model TEXT, created_at TEXT);
+    CREATE TABLE IF NOT EXISTS payments(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, amount INTEGER,
+        status TEXT, created_at TEXT);
     """
 )
+# users jadvaliga yangi ustunlar (eski bazada bo'lmasa qo'shiladi)
+_cols = {r[1] for r in db.execute("PRAGMA table_info(users)").fetchall()}
+for _col, _type in [("sub", "TEXT DEFAULT ''"), ("ig", "TEXT"), ("credits", "INTEGER DEFAULT 0"),
+                    ("banned", "INTEGER DEFAULT 0")]:
+    if _col not in _cols:
+        db.execute(f"ALTER TABLE users ADD COLUMN {_col} {_type}")
 db.commit()
+
+DEFAULT_SETTINGS = {
+    "insta_url": os.getenv("INSTA_URL", ""),
+    "card": os.getenv("CARD_NUMBER", ""),
+    "holder": os.getenv("CARD_HOLDER", ""),
+    "price_full": os.getenv("PRICE_FULL", "10000"),
+    "price_sub": os.getenv("PRICE_SUB", "5000"),
+}
+
+
+def get_setting(key: str) -> str:
+    row = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return row[0] if row and row[0] is not None else DEFAULT_SETTINGS.get(key, "")
+
+
+def set_setting(key: str, value: str) -> None:
+    db.execute("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)", (key, value))
+    db.commit()
+
+
+def user_field(uid: int, field: str, default=None):
+    row = db.execute(f"SELECT {field} FROM users WHERE user_id=?", (uid,)).fetchone()
+    return row[0] if row and row[0] is not None else default
+
+
+def set_user_field(uid: int, field: str, value) -> None:
+    db.execute("INSERT OR IGNORE INTO users(user_id, created_at) VALUES(?, ?)", (uid, now().isoformat()))
+    db.execute(f"UPDATE users SET {field}=? WHERE user_id=?", (value, uid))
+    db.commit()
+
+
+def is_subscribed(uid: int) -> bool:
+    return user_field(uid, "sub", "") == "ok"
+
+
+def money(n: int | str) -> str:
+    return f"{int(n):,}".replace(",", " ")
 
 
 def now() -> datetime:
@@ -413,12 +461,7 @@ PE_LIST_TEXT = (
 
 @admin_router.message(Command("addpremium"))
 async def cmd_addpremium(message: Message, state: FSMContext):
-    uid = message.from_user.id
-    if not admin_ids():
-        db.execute("INSERT OR IGNORE INTO admins(user_id) VALUES(?)", (uid,))
-        db.commit()
-        await message.answer("👑 Siz bot admini bo'ldingiz (birinchi bo'lib /addpremium yozgan odam).")
-    if not is_admin(uid):
+    if not is_admin(message.from_user.id):
         return
     await state.clear()
     await message.answer(PE_LIST_TEXT, reply_markup=pe_list_kb())
@@ -500,6 +543,381 @@ async def pe_got(message: Message, state: FSMContext):
     await message.answer(PE_LIST_TEXT, reply_markup=pe_list_kb())
 
 
+# ======================================================================
+#  Instagram obuna + pullik savollar
+# ======================================================================
+paid_router = Router()
+ADMIN_CODE = os.getenv("ADMIN_CODE", "").strip()
+
+
+class SubIG(StatesGroup):
+    wait = State()
+
+
+class Pay(StatesGroup):
+    receipt = State()
+
+
+ALL_MENU = CALC_BTNS | OTHER_BTNS | LANG_BTNS
+not_menu = ~F.text.in_(ALL_MENU) & ~F.text.startswith("/")
+
+
+async def clear_user_state(bot: Bot, uid: int) -> None:
+    try:
+        await DP.fsm.get_context(bot=bot, chat_id=uid, user_id=uid).clear()
+    except Exception:
+        log.exception("state clear failed")
+
+
+async def send_admins(bot: Bot, text: str, kb=None, photo: str | None = None, document: str | None = None) -> None:
+    ids = admin_ids()
+    if not ids:
+        log.warning("Admin yo'q! Xabar yuborilmadi: %s", text[:80])
+    for aid in ids:
+        try:
+            if photo:
+                await bot.send_photo(aid, photo, caption=text, reply_markup=kb)
+            elif document:
+                await bot.send_document(aid, document, caption=text, reply_markup=kb)
+            else:
+                await bot.send_message(aid, text, reply_markup=kb,
+                                       link_preview_options=LinkPreviewOptions(is_disabled=True))
+        except Exception:
+            log.exception("send to admin %s failed", aid)
+
+
+def insta_url() -> str:
+    return get_setting("insta_url").strip()
+
+
+def insta_kb(lang: str) -> InlineKeyboardMarkup:
+    t = T[lang]
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t["btn_insta"], url=insta_url(), style=style("primary"))],
+        [ibtn(t["btn_subbed"], "sub:req", st="success")],
+    ])
+
+
+async def ensure_sub(message: Message, lang: str, uid: int) -> bool:
+    """Obuna bo'lmagan bo'lsa, obuna bo'lishni so'raydi va False qaytaradi."""
+    if not insta_url() or is_admin(uid) or is_subscribed(uid):
+        return True
+    if user_field(uid, "sub", "") == "pending":
+        await message.answer(T[lang]["sub_pending"])
+        return False
+    await message.answer(T[lang]["sub_need"], reply_markup=insta_kb(lang))
+    return False
+
+
+def user_label(u) -> str:
+    uname = f" (@{u.username})" if u.username else ""
+    return f"{html.escape(u.full_name)}{uname}\n🆔 <code>{u.id}</code>"
+
+
+@paid_router.callback_query(F.data == "sub:start")
+async def cb_sub_start(cb: CallbackQuery):
+    await cb.answer()
+    lang = get_lang(cb.from_user.id)
+    await ensure_sub(cb.message, lang, cb.from_user.id)
+
+
+@paid_router.callback_query(F.data == "sub:req")
+async def cb_sub_req(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
+    uid = cb.from_user.id
+    lang = get_lang(uid)
+    st = user_field(uid, "sub", "")
+    if st == "ok":
+        return await cb.message.answer(T[lang]["sub_ok"], reply_markup=menu_kb(lang))
+    if st == "pending":
+        return await cb.message.answer(T[lang]["sub_pending"])
+    await state.set_state(SubIG.wait)
+    await cb.message.answer(T[lang]["ask_ig"])
+
+
+IG_RE = re.compile(r"(?:instagram\.com/)?@?([A-Za-z0-9._]{1,30})")
+
+
+@paid_router.message(SubIG.wait, F.text, not_menu)
+async def got_ig(message: Message, state: FSMContext, bot: Bot):
+    uid = message.from_user.id
+    lang = get_lang(uid)
+    m = IG_RE.search(message.text.strip())
+    if not m:
+        return await message.answer(T[lang]["bad_ig"])
+    ig = m.group(1).strip(".")
+    set_user_field(uid, "ig", ig)
+    set_user_field(uid, "sub", "pending")
+    await state.clear()
+    await message.answer(T[lang]["sub_sent"], reply_markup=menu_kb(lang))
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Obuna bo'lgan", callback_data=f"adm:sub:ok:{uid}", style=style("success")),
+        InlineKeyboardButton(text="❌ Obuna bo'lmagan", callback_data=f"adm:sub:no:{uid}", style=style("danger")),
+    ]])
+    await send_admins(
+        bot,
+        "📸 <b>Yangi obuna so'rovi</b>\n\n"
+        f"👤 {user_label(message.from_user)}\n"
+        f"📷 Instagram: https://instagram.com/{html.escape(ig)}\n\n"
+        "Profilni oching: «Follow back / Подписаться в ответ» chiqsa — obuna bo'lgan.",
+        kb,
+    )
+
+
+async def show_payment(message: Message, state: FSMContext, lang: str, uid: int) -> None:
+    t = T[lang]
+    card = get_setting("card").strip()
+    if not card:
+        await message.answer(t["pay_not_ready"])
+        return
+    pending = db.execute("SELECT 1 FROM payments WHERE user_id=? AND status='pending'", (uid,)).fetchone()
+    if pending:
+        await message.answer(t["pay_pending"])
+        return
+    sub = is_subscribed(uid)
+    price = get_setting("price_sub") if sub else get_setting("price_full")
+    text = t["pay_info"].format(
+        price=money(price),
+        discount=t["pay_discount"] if sub else "",
+        card=f"<code>{html.escape(card)}</code>",
+        holder=html.escape(get_setting("holder") or "—"),
+    )
+    kb = None
+    if not sub and insta_url():
+        text += "\n\n" + t["pay_sub_hint"].format(sub_price=money(get_setting("price_sub")))
+        kb = InlineKeyboardMarkup(inline_keyboard=[[ibtn(t["btn_get_discount"], "sub:start", st="success")]])
+    await state.set_state(Pay.receipt)
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+async def handle_receipt(message: Message, bot: Bot, state: FSMContext) -> None:
+    uid = message.from_user.id
+    lang = get_lang(uid)
+    t = T[lang]
+    await state.clear()
+    if user_field(uid, "banned", 0):
+        await message.answer(t["pay_no"])
+        return
+    if db.execute("SELECT 1 FROM payments WHERE user_id=? AND status='pending'", (uid,)).fetchone():
+        await message.answer(t["pay_pending"])
+        return
+    sub = is_subscribed(uid)
+    amount = int(get_setting("price_sub") if sub else get_setting("price_full"))
+    cur = db.execute(
+        "INSERT INTO payments(user_id, amount, status, created_at) VALUES(?,?,?,?)",
+        (uid, amount, "pending", now().isoformat()),
+    )
+    db.commit()
+    pid = cur.lastrowid
+    await message.answer(t["pay_sent"], reply_markup=menu_kb(lang))
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Pul keldi", callback_data=f"adm:pay:ok:{pid}", style=style("success")),
+         InlineKeyboardButton(text="❌ Kelmadi", callback_data=f"adm:pay:no:{pid}", style=style("danger"))],
+        [InlineKeyboardButton(text="🚫 Bloklash (yolg'on chek)", callback_data=f"adm:ban:{pid}")],
+    ])
+    caption = (
+        f"💰 <b>To'lov cheki #{pid}</b>\n\n"
+        f"👤 {user_label(message.from_user)}\n"
+        f"💵 Summa: <b>{money(amount)} so'm</b> ({'obunachi, 50%' if sub else 'oddiy narx'})\n\n"
+        "Kartangizga pul tushganini tekshiring."
+    )
+    if message.photo:
+        await send_admins(bot, caption, kb, photo=message.photo[-1].file_id)
+    else:
+        await send_admins(bot, caption, kb, document=message.document.file_id)
+
+
+@paid_router.message(Pay.receipt, F.photo | F.document)
+async def got_receipt(message: Message, bot: Bot, state: FSMContext):
+    await handle_receipt(message, bot, state)
+
+
+@paid_router.message(Pay.receipt, F.text, not_menu)
+async def receipt_text(message: Message):
+    await message.answer(T[get_lang(message.from_user.id)]["pay_need_photo"])
+
+
+# ---------- Admin: tasdiqlash tugmalari ----------
+async def _mark_done(cb: CallbackQuery, note: str) -> None:
+    try:
+        if cb.message.photo or cb.message.document:
+            await cb.message.edit_caption(caption=(cb.message.html_text or "") + f"\n\n{note}",
+                                          parse_mode="HTML", reply_markup=None)
+        else:
+            await cb.message.edit_text((cb.message.html_text or "") + f"\n\n{note}", parse_mode="HTML",
+                                       reply_markup=None,
+                                       link_preview_options=LinkPreviewOptions(is_disabled=True))
+    except Exception:
+        log.exception("edit admin msg failed")
+
+
+@admin_router.callback_query(F.data.startswith("adm:"))
+async def cb_admin(cb: CallbackQuery, bot: Bot):
+    if not is_admin(cb.from_user.id):
+        return await cb.answer()
+    parts = cb.data.split(":")
+    who = cb.from_user.first_name
+
+    if parts[1] == "sub":
+        action, uid = parts[2], int(parts[3])
+        if user_field(uid, "sub", "") != "pending":
+            await cb.answer("Bu so'rov allaqachon ko'rib chiqilgan", show_alert=True)
+            return await _mark_done(cb, "ℹ️ Allaqachon ko'rib chiqilgan")
+        lang = get_lang(uid)
+        if action == "ok":
+            set_user_field(uid, "sub", "ok")
+            await cb.answer("✅ Tasdiqlandi")
+            await _mark_done(cb, f"✅ Obuna tasdiqlandi ({html.escape(who)})")
+            await clear_user_state(bot, uid)
+            await bot.send_message(uid, T[lang]["sub_ok"], reply_markup=menu_kb(lang))
+        else:
+            set_user_field(uid, "sub", "")
+            await cb.answer("❌ Rad etildi")
+            await _mark_done(cb, f"❌ Obuna topilmadi ({html.escape(who)})")
+            if insta_url():
+                await bot.send_message(uid, T[lang]["sub_no"], reply_markup=insta_kb(lang))
+            else:
+                await bot.send_message(uid, T[lang]["sub_no"])
+        return
+
+    if parts[1] in ("pay", "ban"):
+        pid = int(parts[-1])
+        row = db.execute("SELECT user_id, amount, status FROM payments WHERE id=?", (pid,)).fetchone()
+        if not row:
+            return await cb.answer("Topilmadi", show_alert=True)
+        uid, amount, status = row
+        if status != "pending":
+            await cb.answer("Bu chek allaqachon ko'rib chiqilgan", show_alert=True)
+            return await _mark_done(cb, "ℹ️ Allaqachon ko'rib chiqilgan")
+        lang = get_lang(uid)
+        if parts[1] == "pay" and parts[2] == "ok":
+            db.execute("UPDATE payments SET status='ok' WHERE id=?", (pid,))
+            db.execute("UPDATE users SET credits = COALESCE(credits, 0) + 1 WHERE user_id=?", (uid,))
+            db.commit()
+            await cb.answer("✅ Tasdiqlandi")
+            await _mark_done(cb, f"✅ To'lov tasdiqlandi ({html.escape(who)})")
+            await clear_user_state(bot, uid)
+            await bot.send_message(uid, T[lang]["pay_ok"], reply_markup=menu_kb(lang))
+        elif parts[1] == "pay":
+            db.execute("UPDATE payments SET status='no' WHERE id=?", (pid,))
+            db.commit()
+            await cb.answer("❌ Rad etildi")
+            await _mark_done(cb, f"❌ To'lov topilmadi ({html.escape(who)})")
+            await bot.send_message(uid, T[lang]["pay_no"])
+        else:  # ban
+            db.execute("UPDATE payments SET status='ban' WHERE id=?", (pid,))
+            db.commit()
+            set_user_field(uid, "banned", 1)
+            await cb.answer("🚫 Bloklandi")
+            await _mark_done(cb, f"🚫 Foydalanuvchi bloklandi ({html.escape(who)})")
+            await bot.send_message(uid, T[lang]["pay_no"])
+
+
+# ---------- Admin buyruqlari ----------
+ADMIN_HELP = (
+    "👑 <b>Admin buyruqlari</b>\n\n"
+    "/settings — joriy sozlamalar\n"
+    "/setinsta <code>https://instagram.com/username</code> — Instagram sahifa\n"
+    "/setcard <code>8600123412341234 Ism Familiya</code> — to'lov kartasi\n"
+    "/setprice <code>10000 5000</code> — narx: oddiy va obunachi\n"
+    "/addcredit <code>ID 1</code> — foydalanuvchiga bepul savol berish\n"
+    "/stats — statistika\n"
+    "/addpremium — tugmalarga premium emoji\n\n"
+    "Obuna so'rovlari va to'lov cheklari shu yerga ✅/❌ tugmalari bilan keladi."
+)
+
+
+@admin_router.message(Command("admin"))
+async def cmd_admin(message: Message, command: CommandObject):
+    uid = message.from_user.id
+    if is_admin(uid):
+        return await message.answer(ADMIN_HELP, parse_mode="HTML")
+    if ADMIN_CODE and (command.args or "").strip() == ADMIN_CODE:
+        db.execute("INSERT OR IGNORE INTO admins(user_id) VALUES(?)", (uid,))
+        db.commit()
+        return await message.answer("👑 Siz admin bo'ldingiz!\n\n" + ADMIN_HELP, parse_mode="HTML")
+    # noto'g'ri kod — hech narsa demaymiz
+
+
+@admin_router.message(Command("settings"))
+async def cmd_settings(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    await message.answer(
+        "⚙️ <b>Sozlamalar</b>\n\n"
+        f"📷 Instagram: {html.escape(insta_url() or '— (obuna tekshiruvi o‘chiq)')}\n"
+        f"💳 Karta: <code>{html.escape(get_setting('card') or '—')}</code>\n"
+        f"👤 Egasi: {html.escape(get_setting('holder') or '—')}\n"
+        f"💵 Narx: {money(get_setting('price_full'))} so'm, obunachiga {money(get_setting('price_sub'))} so'm\n"
+        f"👑 Adminlar soni: {len(admin_ids())}\n\n" + ADMIN_HELP,
+        parse_mode="HTML",
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
+    )
+
+
+@admin_router.message(Command("setinsta"))
+async def cmd_setinsta(message: Message, command: CommandObject):
+    if not is_admin(message.from_user.id):
+        return
+    arg = (command.args or "").strip()
+    if arg.lower() in ("off", "o'chir", "-"):
+        set_setting("insta_url", "")
+        return await message.answer("📷 Instagram tekshiruvi o'chirildi: hisoblash hammaga ochiq.")
+    m = IG_RE.search(arg) if arg else None
+    if not m:
+        return await message.answer("Masalan: /setinsta https://instagram.com/username")
+    url = f"https://instagram.com/{m.group(1)}"
+    set_setting("insta_url", url)
+    await message.answer(f"✅ Instagram saqlandi: {url}", link_preview_options=LinkPreviewOptions(is_disabled=True))
+
+
+@admin_router.message(Command("setcard"))
+async def cmd_setcard(message: Message, command: CommandObject):
+    if not is_admin(message.from_user.id):
+        return
+    arg = (command.args or "").strip()
+    m = re.match(r"([\d\s]{12,25})\s*(.*)", arg)
+    digits = re.sub(r"\D", "", m.group(1)) if m else ""
+    if not (m and 12 <= len(digits) <= 19):
+        return await message.answer("Masalan: /setcard 8600123412341234 Ism Familiya")
+    card = " ".join(digits[i:i + 4] for i in range(0, len(digits), 4))
+    set_setting("card", card)
+    if m.group(2).strip():
+        set_setting("holder", m.group(2).strip())
+    await message.answer(f"✅ Karta saqlandi: <code>{card}</code>\n👤 {html.escape(get_setting('holder') or '—')}",
+                         parse_mode="HTML")
+
+
+@admin_router.message(Command("setprice"))
+async def cmd_setprice(message: Message, command: CommandObject):
+    if not is_admin(message.from_user.id):
+        return
+    nums = re.findall(r"\d+", (command.args or "").replace(" 000", "000"))
+    if len(nums) != 2:
+        return await message.answer("Masalan: /setprice 10000 5000")
+    set_setting("price_full", nums[0])
+    set_setting("price_sub", nums[1])
+    await message.answer(f"✅ Narx: {money(nums[0])} so'm, obunachiga {money(nums[1])} so'm")
+
+
+@admin_router.message(Command("addcredit"))
+async def cmd_addcredit(message: Message, command: CommandObject, bot: Bot):
+    if not is_admin(message.from_user.id):
+        return
+    nums = re.findall(r"\d+", command.args or "")
+    if not nums:
+        return await message.answer("Masalan: /addcredit 123456789 1")
+    uid, n = int(nums[0]), int(nums[1]) if len(nums) > 1 else 1
+    db.execute("UPDATE users SET credits = COALESCE(credits, 0) + ? WHERE user_id=?", (n, uid))
+    db.commit()
+    await message.answer(f"✅ {uid} ga {n} ta savol qo'shildi.")
+    try:
+        lang = get_lang(uid)
+        await bot.send_message(uid, T[lang]["pay_ok"], reply_markup=menu_kb(lang))
+    except Exception:
+        pass
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
@@ -536,23 +954,30 @@ async def cb_lang(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
     await cb.message.edit_reply_markup(reply_markup=None)
     await cb.message.answer(T[lang]["welcome"], reply_markup=menu_kb(lang))
-    await start_calc(cb.message, state, lang)
+    await start_calc(cb.message, state, lang, cb.from_user.id)
 
 
-async def start_calc(message: Message, state: FSMContext, lang: str):
+async def start_calc(message: Message, state: FSMContext, lang: str, uid: int):
+    await state.clear()
+    if not await ensure_sub(message, lang, uid):
+        return
     await state.set_state(Calc.start_date)
     await message.answer(T[lang]["q1"])
 
 
 @router.message(F.text.in_(CALC_BTNS))
 async def btn_calc(message: Message, state: FSMContext):
-    await start_calc(message, state, get_lang(message.from_user.id))
+    await start_calc(message, state, get_lang(message.from_user.id), message.from_user.id)
 
 
 @router.message(F.text.in_(OTHER_BTNS))
 async def btn_other(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer(T[get_lang(message.from_user.id)]["other_prompt"])
+    uid = message.from_user.id
+    lang = get_lang(uid)
+    if is_admin(uid) or int(user_field(uid, "credits", 0)) > 0:
+        return await message.answer(T[lang]["ask_question"])
+    await show_payment(message, state, lang, uid)
 
 
 # 1-savol: sana
@@ -670,7 +1095,7 @@ async def cmd_stats(message: Message):
 
 # Erkin savol → Claude
 @router.message(StateFilter(None), F.text)
-async def free_question(message: Message, bot: Bot):
+async def free_question(message: Message, bot: Bot, state: FSMContext):
     uid = message.from_user.id
     if not has_lang(uid):
         save_user(message)
@@ -679,6 +1104,9 @@ async def free_question(message: Message, bot: Bot):
     t = T[lang]
     if message.text.startswith("/"):
         return
+    admin = is_admin(uid)
+    if not admin and int(user_field(uid, "credits", 0)) <= 0:
+        return await show_payment(message, state, lang, uid)
     if client is None:
         return await message.answer(t["unavailable"])
     if used_today(uid) >= DAILY_LIMIT and not is_admin(uid):
@@ -700,19 +1128,32 @@ async def free_question(message: Message, bot: Bot):
 
     add_usage(uid)
     write_log(uid, "question", message.text, answer, in_tok, out_tok, MODEL)
+    if not admin and answer:
+        db.execute("UPDATE users SET credits = MAX(credits - 1, 0) WHERE user_id=?", (uid,))
+        db.commit()
+        left = int(user_field(uid, "credits", 0))
+        if left > 0:
+            answer += t["credit_left"].format(n=left)
     await send_long(message, answer or t["error"], reply_markup=menu_kb(lang))
 
 
 @router.message()
-async def other_content(message: Message):
+async def other_content(message: Message, bot: Bot, state: FSMContext):
+    # Holatsiz yuborilgan rasm/fayl — ehtimol to'lov cheki
+    if (message.photo or message.document) and not is_admin(message.from_user.id):
+        return await handle_receipt(message, bot, state)
     await message.answer(T[get_lang(message.from_user.id)]["text_only"])
+
+
+DP = Dispatcher()
 
 
 async def main():
     bot = Bot(BOT_TOKEN)
-    dp = Dispatcher()
+    dp = DP
     bot.session.middleware(emoji_fallback)
     dp.include_router(admin_router)
+    dp.include_router(paid_router)
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
     log.info("Bot ishga tushdi. Model: %s", MODEL)

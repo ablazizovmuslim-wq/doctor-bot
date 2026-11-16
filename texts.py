@@ -65,6 +65,39 @@ T = {
         "btn_calc": "🗓 Ovulyatsiyani hisoblash",
         "btn_other": "❓ Boshqa savol",
         "btn_lang": "🌐 Tilni o'zgartirish",
+        # --- Instagram obuna ---
+        "sub_need": (
+            "📸 Ovulyatsiya kunini hisoblash shifokorning Instagram sahifasiga obuna bo'lganlar uchun bepul.\n\n"
+            "1) Quyidagi tugma orqali sahifaga o'ting va obuna bo'ling.\n"
+            "2) «✅ Obuna bo'ldim» tugmasini bosing.\n\n"
+            "🎁 Obunachilarga savollar 50% chegirma bilan!"
+        ),
+        "btn_insta": "📸 Instagram sahifasi",
+        "btn_subbed": "✅ Obuna bo'ldim",
+        "ask_ig": "Instagram username'ingizni yozing (masalan: madina_01)",
+        "bad_ig": "Username'ni tushunmadim 🙏 Masalan: madina_01",
+        "sub_sent": "⏳ So'rovingiz yuborildi. Obunangiz tekshirilgach, sizga xabar keladi.",
+        "sub_pending": "⏳ So'rovingiz tekshirilmoqda. Tasdiqlangach, sizga xabar keladi.",
+        "sub_ok": "✅ Obunangiz tasdiqlandi! Rahmat 🌸\n\nEndi ovulyatsiyani hisoblashingiz mumkin. Savollar siz uchun 50% chegirma bilan.",
+        "sub_no": "❌ Obuna topilmadi. Iltimos, Instagram sahifaga obuna bo'lib, qaytadan «✅ Obuna bo'ldim» tugmasini bosing.",
+        # --- Pullik savol ---
+        "pay_info": (
+            "❓ Shaxsiy savolingizga to'liq javob olish narxi: {price} so'm{discount}\n\n"
+            "💳 Karta: {card}\n"
+            "👤 {holder}\n\n"
+            "To'lovni qilgach, chekni (skrinshot) shu yerga yuboring 👇"
+        ),
+        "pay_discount": " (obunachilar uchun 50% chegirma 🎁)",
+        "pay_sub_hint": "🎁 Instagram sahifaga obuna bo'lsangiz, narx {sub_price} so'm bo'ladi.",
+        "btn_get_discount": "🎁 Obuna bo'lib 50% chegirma olish",
+        "pay_not_ready": "Kechirasiz, to'lov hozircha sozlanmagan. Keyinroq urinib ko'ring 🙏",
+        "pay_need_photo": "Iltimos, to'lov chekini rasm (skrinshot) ko'rinishida yuboring 📸",
+        "pay_sent": "⏳ Chek yuborildi. To'lov tasdiqlangach, sizga xabar keladi va savolingizni yozasiz.",
+        "pay_pending": "⏳ To'lovingiz tekshirilmoqda. Tasdiqlangach, sizga xabar keladi.",
+        "pay_ok": "✅ To'lov tasdiqlandi! Rahmat 🌸\n\nEndi savolingizni batafsil yozing ✍️",
+        "pay_no": "❌ To'lov topilmadi. Agar to'lagan bo'lsangiz, chekni qaytadan yuboring.",
+        "ask_question": "✍️ Savolingizni batafsil yozing, to'liq javob beraman.",
+        "credit_left": "\n\n💬 Qolgan savollar: {n}",
     },
     "ru": {
         "welcome": (
@@ -122,5 +155,38 @@ T = {
         "btn_calc": "🗓 Рассчитать овуляцию",
         "btn_other": "❓ Другой вопрос",
         "btn_lang": "🌐 Сменить язык",
+        # --- Подписка Instagram ---
+        "sub_need": (
+            "📸 Расчёт дня овуляции бесплатный для подписчиков Instagram-страницы врача.\n\n"
+            "1) Перейдите на страницу по кнопке ниже и подпишитесь.\n"
+            "2) Нажмите «✅ Я подписался(ась)».\n\n"
+            "🎁 Для подписчиков вопросы со скидкой 50%!"
+        ),
+        "btn_insta": "📸 Страница в Instagram",
+        "btn_subbed": "✅ Я подписался(ась)",
+        "ask_ig": "Напишите ваш username в Instagram (например: madina_01)",
+        "bad_ig": "Не понял username 🙏 Например: madina_01",
+        "sub_sent": "⏳ Запрос отправлен. После проверки подписки вам придёт сообщение.",
+        "sub_pending": "⏳ Ваш запрос проверяется. После подтверждения вам придёт сообщение.",
+        "sub_ok": "✅ Подписка подтверждена! Спасибо 🌸\n\nТеперь вы можете рассчитать овуляцию. Вопросы для вас со скидкой 50%.",
+        "sub_no": "❌ Подписка не найдена. Подпишитесь на страницу в Instagram и снова нажмите «✅ Я подписался(ась)».",
+        # --- Платный вопрос ---
+        "pay_info": (
+            "❓ Полный ответ на ваш личный вопрос стоит: {price} сум{discount}\n\n"
+            "💳 Карта: {card}\n"
+            "👤 {holder}\n\n"
+            "После оплаты отправьте сюда чек (скриншот) 👇"
+        ),
+        "pay_discount": " (скидка 50% для подписчиков 🎁)",
+        "pay_sub_hint": "🎁 Если подпишетесь на страницу в Instagram, цена будет {sub_price} сум.",
+        "btn_get_discount": "🎁 Подписаться и получить скидку 50%",
+        "pay_not_ready": "Извините, оплата пока не настроена. Попробуйте позже 🙏",
+        "pay_need_photo": "Пожалуйста, отправьте чек об оплате в виде фото (скриншота) 📸",
+        "pay_sent": "⏳ Чек отправлен. После подтверждения оплаты вам придёт сообщение, и вы напишете вопрос.",
+        "pay_pending": "⏳ Ваша оплата проверяется. После подтверждения вам придёт сообщение.",
+        "pay_ok": "✅ Оплата подтверждена! Спасибо 🌸\n\nТеперь подробно напишите ваш вопрос ✍️",
+        "pay_no": "❌ Оплата не найдена. Если вы оплатили, отправьте чек ещё раз.",
+        "ask_question": "✍️ Подробно напишите ваш вопрос, я дам полный ответ.",
+        "credit_left": "\n\n💬 Осталось вопросов: {n}",
     },
 }
