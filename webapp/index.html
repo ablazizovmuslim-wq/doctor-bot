@@ -168,8 +168,8 @@ ul li::before{content:"✓";color:var(--c);font-weight:900;margin-right:8px;text
 <div class="status" id="status"></div>
 
 <div class="promo" id="promo">
-  <h3><span class="gift">🎁</span> <span id="promoH">−50% chegirma</span></h3>
-  <p id="promoP">Shifokorning Instagram sahifasiga obuna bo'ling — barcha paketlar yarim narxda!</p>
+  <h3><span class="gift">🎁</span> <span id="promoH">Chegirma 🎁</span></h3>
+  <p id="promoP">Shifokorning Instagram sahifasiga obuna bo'ling — barcha paketlar arzonroq!</p>
   <div class="row" id="promoRow">
     <button class="btn" id="igBtn">📸 <span data-x="promoIg">Obuna bo'lish</span></button>
     <button class="btn ghost" id="doneBtn" data-x="promoDone">✅ Obuna bo'ldim</button>
@@ -190,20 +190,20 @@ let lang = (qs.get("lang") === "ru") ? "ru" : "uz";
 let state = null, selected = null, firstRender = true;
 
 const DEFAULT = [
-  {key:"once", base:5000, price:5000, days:0},
-  {key:"day", base:10000, price:10000, days:1},
-  {key:"week", base:50000, price:50000, days:7},
+  {key:"once", base:10000, price:10000, days:0},
+  {key:"day", base:20000, price:20000, days:1},
+  {key:"week", base:40000, price:40000, days:7},
   {key:"month", base:80000, price:80000, days:30},
-  {key:"vip", base:100000, price:100000, days:365},
+  {key:"vip", base:450000, price:450000, days:365},
 ];
 const ICO = {once:"⚡", day:"☀️", week:"📅", month:"🌙", vip:"👑"};
 
 const L = {
   uz: {
     title:"Ovulyatsiya kunini aniqlash", doctor:"Urolog-androlog yordamchisi",
-    promoH:"−50% chegirma", promoP:"Shifokorning Instagram sahifasiga obuna bo'ling — barcha paketlar yarim narxda!",
+    promoH:"Chegirma", promoP:"Shifokorning Instagram sahifasiga obuna bo'ling — barcha paketlar arzonroq!",
     promoIg:"Obuna bo'lish", promoDone:"✅ Obuna bo'ldim",
-    promoOnH:"Sizga −50% chegirma faol", promoOnP:"Siz Instagram obunachisisiz — barcha paketlar yarim narxda. Rahmat! 🌸",
+    promoOnH:"Sizga chegirma faol", promoOnP:"Siz Instagram obunachisisiz — barcha paketlar chegirma bilan. Rahmat! 🌸",
     h:"Paketlar", hp:"Paketni tanlang — savollaringizga to'liq javob va ovulyatsiya kunini hisoblash.",
     note:"To'lov — karta orqali. Chekni botga yuborasiz, bot uni avtomatik tekshirib, paketni faollashtiradi.",
     cur:"so'm", best:"Eng foydali", vipB:"VIP",
@@ -220,9 +220,9 @@ const L = {
   },
   ru: {
     title:"Определение дня овуляции", doctor:"Помощник уролога-андролога",
-    promoH:"Скидка −50%", promoP:"Подпишитесь на Instagram-страницу врача — все пакеты за полцены!",
+    promoH:"Скидка", promoP:"Подпишитесь на Instagram-страницу врача — все пакеты дешевле!",
     promoIg:"Подписаться", promoDone:"✅ Я подписался(ась)",
-    promoOnH:"Ваша скидка −50% активна", promoOnP:"Вы подписчик Instagram — все пакеты за полцены. Спасибо! 🌸",
+    promoOnH:"Ваша скидка активна", promoOnP:"Вы подписчик Instagram — все пакеты со скидкой. Спасибо! 🌸",
     h:"Пакеты", hp:"Выберите пакет — полные ответы на вопросы и расчёт дня овуляции.",
     note:"Оплата — картой. Отправьте чек в бот: он сам проверит его и активирует пакет.",
     cur:"сум", best:"Выгоднее всего", vipB:"VIP",
@@ -290,7 +290,7 @@ function render(){
     const cls = p.key === "vip" ? "vip" : (p.key === "month" ? "best" : "");
     const badge = p.key === "month" ? `<span class="badge">${t("best")}</span>` : (p.key === "vip" ? `<span class="badge">${t("vipB")}</span>` : "");
     const feats = p.days ? t("f_time")(p.days) : t("f_once");
-    const old = p.price !== p.base ? `<span class="old">${fmt(p.base)}</span><span class="off">−50%</span>` : "";
+    const old = p.price !== p.base ? `<span class="old">${fmt(p.base)}</span><span class="off">−${Math.round(100 - p.price * 100 / p.base)}%</span>` : "";
     return `<div class="card ${cls} ${selected === p.key ? "sel" : ""}" data-k="${p.key}" style="animation-delay:${.18 + i*.08}s,${i*.4}s">
       ${badge}
       <div class="name"><span class="ico">${ICO[p.key]}</span>${t("n_" + p.key)}</div>

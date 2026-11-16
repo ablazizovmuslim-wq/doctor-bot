@@ -14,7 +14,7 @@ T = {
             "Assalomu alaykum! 👋\n"
             "Men shifokorning yordamchi botiman.\n\n"
             "Ovulyatsiya kuningizni hisoblab beraman va savollaringizga javob beraman.\n\n"
-            "🎁 Shifokorning Instagram sahifasiga obuna bo'lsangiz — 50% chegirma!"
+            "🎁 Shifokorning Instagram sahifasiga obuna bo'lsangiz — chegirma!"
         ),
         "q1": (
             "1️⃣ Oxirgi hayzingiz qachon boshlangan?\n\n"
@@ -70,7 +70,7 @@ T = {
             "📸 Ovulyatsiya kunini hisoblash shifokorning Instagram sahifasiga obuna bo'lganlar uchun bepul.\n\n"
             "1) Quyidagi tugma orqali sahifaga o'ting va obuna bo'ling.\n"
             "2) «✅ Obuna bo'ldim» tugmasini bosing.\n\n"
-            "🎁 Obunachilarga savollar 50% chegirma bilan!"
+            "🎁 Obunachilarga chegirma!"
         ),
         "btn_insta": "📸 Instagram sahifasi",
         "btn_subbed": "✅ Obuna bo'ldim",
@@ -78,7 +78,7 @@ T = {
         "bad_ig": "Username'ni tushunmadim 🙏 Masalan: madina_01",
         "sub_sent": "⏳ So'rovingiz yuborildi. Obunangiz tekshirilgach, sizga xabar keladi.",
         "sub_pending": "⏳ So'rovingiz tekshirilmoqda. Tasdiqlangach, sizga xabar keladi.",
-        "sub_ok": "✅ Obunangiz tasdiqlandi! Rahmat 🌸\n\nEndi ovulyatsiyani hisoblash va savollar siz uchun 50% chegirma bilan — 5 000 so'm. Kerakli tugmani qayta bosing 👇",
+        "sub_ok": "✅ Obunangiz tasdiqlandi! Rahmat 🌸\n\nEndi ovulyatsiyani hisoblash va savollar siz uchun chegirma bilan — 5 000 so'mdan. Kerakli tugmani qayta bosing 👇",
         "sub_no": "❌ Obuna topilmadi. Iltimos, Instagram sahifaga obuna bo'lib, qaytadan «✅ Obuna bo'ldim» tugmasini bosing.",
         # --- Pullik savol ---
         "pay_info": (
@@ -87,9 +87,9 @@ T = {
             "👤 {holder}\n\n"
             "To'lovni qilgach, chekni (skrinshot) shu yerga yuboring 👇"
         ),
-        "pay_discount": " (obunachilar uchun 50% chegirma 🎁)",
+        "pay_discount": " (obunachilar uchun chegirma 🎁)",
         "pay_sub_hint": (
-            "🎁 {sub_price} so'mga (50% chegirma bilan) olish uchun, iltimos, "
+            "🎁 {sub_price} so'mga (chegirma bilan) olish uchun, iltimos, "
             "quyidagi havola orqali o'tib, shifokorning Instagram sahifasiga obuna bo'ling, "
             "so'ng «✅ Obuna bo'ldim» tugmasini bosing 👇"
         ),
@@ -103,7 +103,7 @@ T = {
             "To'lovni qilgach, chekni (skrinshot) shu yerga yuboring 👇"
         ),
         "pay_ok_calc": "✅ To'lov tasdiqlandi! Rahmat 🌸\n\nEndi «🗓 Ovulyatsiyani hisoblash» tugmasini bosing.",
-        "btn_get_discount": "🎁 Obuna bo'lib 50% chegirma olish",
+        "btn_get_discount": "🎁 Obuna bo'lib chegirma olish",
         "pay_not_ready": "Kechirasiz, to'lov hozircha sozlanmagan. Keyinroq urinib ko'ring 🙏",
         "pay_need_photo": "Iltimos, to'lov chekini rasm (skrinshot) ko'rinishida yuboring 📸",
         "pay_sent": "⏳ Chek yuborildi. To'lov tasdiqlangach, sizga xabar keladi.",
@@ -126,8 +126,8 @@ T = {
         "pkgd_month": "30 kun — savollar va hisoblash cheksiz",
         "pkgd_vip": "365 kun — savollar va hisoblash cheksiz",
         "pkgs_title": "💎 <b>Paketni tanlang:</b>",
-        "pkgs_sub_on": "🎁 Siz Instagram obunachisisiz — barcha paketlar 50% arzon!",
-        "pkgs_sub_hint": "🎁 Shifokorning Instagram sahifasiga obuna bo'lsangiz — <b>barcha paketlar 50% arzon</b>. Obuna bo'lib, «✅ Obuna bo'ldim» ni bosing 👇",
+        "pkgs_sub_on": "🎁 Siz Instagram obunachisisiz — barcha paketlar chegirma bilan!",
+        "pkgs_sub_hint": "🎁 Shifokorning Instagram sahifasiga obuna bo'lsangiz — <b>barcha paketlar chegirma bilan</b>. Obuna bo'lib, «✅ Obuna bo'ldim» ni bosing 👇",
         "need_q": "❓ Savolingizga javob olish uchun paket kerak.",
         "need_calc": "🗓 Ovulyatsiya kunini hisoblash uchun paket kerak.",
         "pay_info_pkg": (
@@ -147,7 +147,7 @@ T = {
             "Здравствуйте! 👋\n"
             "Я бот-помощник врача.\n\n"
             "Я рассчитаю день вашей овуляции и отвечу на ваши вопросы.\n\n"
-            "🎁 Подпишитесь на Instagram-страницу врача — скидка 50%!"
+            "🎁 Подпишитесь на Instagram-страницу врача — скидка!"
         ),
         "q1": (
             "1️⃣ Когда началась ваша последняя менструация?\n\n"
@@ -203,7 +203,7 @@ T = {
             "📸 Расчёт дня овуляции бесплатный для подписчиков Instagram-страницы врача.\n\n"
             "1) Перейдите на страницу по кнопке ниже и подпишитесь.\n"
             "2) Нажмите «✅ Я подписался(ась)».\n\n"
-            "🎁 Для подписчиков вопросы со скидкой 50%!"
+            "🎁 Для подписчиков скидка!"
         ),
         "btn_insta": "📸 Страница в Instagram",
         "btn_subbed": "✅ Я подписался(ась)",
@@ -211,7 +211,7 @@ T = {
         "bad_ig": "Не понял username 🙏 Например: madina_01",
         "sub_sent": "⏳ Запрос отправлен. После проверки подписки вам придёт сообщение.",
         "sub_pending": "⏳ Ваш запрос проверяется. После подтверждения вам придёт сообщение.",
-        "sub_ok": "✅ Подписка подтверждена! Спасибо 🌸\n\nТеперь расчёт овуляции и вопросы для вас со скидкой 50% — 5 000 сум. Нажмите нужную кнопку ещё раз 👇",
+        "sub_ok": "✅ Подписка подтверждена! Спасибо 🌸\n\nТеперь расчёт овуляции и вопросы для вас со скидкой — от 5 000 сум. Нажмите нужную кнопку ещё раз 👇",
         "sub_no": "❌ Подписка не найдена. Подпишитесь на страницу в Instagram и снова нажмите «✅ Я подписался(ась)».",
         # --- Платный вопрос ---
         "pay_info": (
@@ -220,9 +220,9 @@ T = {
             "👤 {holder}\n\n"
             "После оплаты отправьте сюда чек (скриншот) 👇"
         ),
-        "pay_discount": " (скидка 50% для подписчиков 🎁)",
+        "pay_discount": " (скидка для подписчиков 🎁)",
         "pay_sub_hint": (
-            "🎁 Чтобы получить за {sub_price} сум (скидка 50%), пожалуйста, "
+            "🎁 Чтобы получить за {sub_price} сум (со скидкой), пожалуйста, "
             "перейдите по ссылке ниже и подпишитесь на Instagram-страницу врача, "
             "затем нажмите «✅ Я подписался(ась)» 👇"
         ),
@@ -236,7 +236,7 @@ T = {
             "После оплаты отправьте сюда чек (скриншот) 👇"
         ),
         "pay_ok_calc": "✅ Оплата подтверждена! Спасибо 🌸\n\nТеперь нажмите «🗓 Рассчитать овуляцию».",
-        "btn_get_discount": "🎁 Подписаться и получить скидку 50%",
+        "btn_get_discount": "🎁 Подписаться и получить скидку",
         "pay_not_ready": "Извините, оплата пока не настроена. Попробуйте позже 🙏",
         "pay_need_photo": "Пожалуйста, отправьте чек об оплате в виде фото (скриншота) 📸",
         "pay_sent": "⏳ Чек отправлен. После подтверждения оплаты вам придёт сообщение.",
@@ -259,8 +259,8 @@ T = {
         "pkgd_month": "30 дней — вопросы и расчёты без ограничений",
         "pkgd_vip": "365 дней — вопросы и расчёты без ограничений",
         "pkgs_title": "💎 <b>Выберите пакет:</b>",
-        "pkgs_sub_on": "🎁 Вы подписчик Instagram — все пакеты на 50% дешевле!",
-        "pkgs_sub_hint": "🎁 Подпишитесь на Instagram-страницу врача — <b>все пакеты на 50% дешевле</b>. После подписки нажмите «✅ Я подписался(ась)» 👇",
+        "pkgs_sub_on": "🎁 Вы подписчик Instagram — все пакеты со скидкой!",
+        "pkgs_sub_hint": "🎁 Подпишитесь на Instagram-страницу врача — <b>все пакеты со скидкой</b>. После подписки нажмите «✅ Я подписался(ась)» 👇",
         "need_q": "❓ Чтобы получить ответ на вопрос, нужен пакет.",
         "need_calc": "🗓 Для расчёта дня овуляции нужен пакет.",
         "pay_info_pkg": (

@@ -134,28 +134,36 @@ def money(n: int | str) -> str:
 
 
 # ---------- 💎 Paketlar ----------
-# key: (asosiy narx, kunlar; 0 = bir martalik)
+# key: (oddiy narx, obunachiga narx, kunlar; 0 = bir martalik)
 PACKAGES = {
-    "once": (5000, 0),
-    "day": (10000, 1),
-    "week": (50000, 7),
-    "month": (80000, 30),
-    "vip": (100000, 365),
+    "once": (10000, 5000, 0),
+    "day": (20000, 12000, 1),
+    "week": (40000, 25000, 7),
+    "month": (80000, 50000, 30),
+    "vip": (450000, 300000, 365),
 }
 ONCE_QUESTIONS, ONCE_CALCS = 3, 1
 EFFECT_PARTY = "5046509860389126442"  # 🎉 Telegram message effect
 
 
-def pkg_base_price(key: str) -> int:
+def _pkg_setting(name: str, key: str, idx: int) -> int:
+    # Admin /setpaket bilan o'zgartirgan narx bo'lsa — o'sha, bo'lmasa PACKAGES dagi narx
     try:
-        return int(get_setting(f"pkg_{key}") or PACKAGES[key][0])
+        return int(get_setting(f"{name}_{key}") or PACKAGES[key][idx])
     except (ValueError, KeyError):
-        return PACKAGES.get(key, (0, 0))[0]
+        return PACKAGES.get(key, (0, 0, 0))[idx]
+
+
+def pkg_base_price(key: str) -> int:
+    return _pkg_setting("pkgp", key, 0)
+
+
+def pkg_sub_price(key: str) -> int:
+    return _pkg_setting("pkgs", key, 1)
 
 
 def pkg_price(key: str, uid: int) -> int:
-    base = pkg_base_price(key)
-    return base // 2 if is_subscribed(uid) else base
+    return pkg_sub_price(key) if is_subscribed(uid) else pkg_base_price(key)
 
 
 def vip_until(uid: int) -> datetime | None:
@@ -880,7 +888,7 @@ async def handle_receipt(message: Message, bot: Bot, state: FSMContext) -> None:
         f"👤 {user_label(message.from_user)}\n"
         f"💎 Paket: <b>{T['uz']['pkg_' + purpose]}</b> ({T['uz']['pkgd_' + purpose]})\n"
         f"💵 Summa: <b>{money(amount)} so'm</b>"
-        + f" ({'obunachi, 50%' if sub else 'oddiy narx'})\n\n"
+        + f" ({'obunachi narxi' if sub else 'oddiy narx'})\n\n"
         "Kartangizga pul tushganini tekshiring."
     )
     if message.photo:
@@ -972,7 +980,7 @@ async def approve_payment(bot: Bot, pid: int, note: str | None = None) -> bool:
     db.execute("UPDATE payments SET status='ok' WHERE id=?", (pid,))
     lang = get_lang(uid)
     t = T[lang]
-    days = PACKAGES.get(purpose, (0, 0))[1]
+    days = PACKAGES.get(purpose, (0, 0, 0))[2]
     if days:
         start = max(vip_until(uid) or now(), now())
         until = start + timedelta(days=days)
@@ -1203,7 +1211,7 @@ async def cmd_settings(message: Message):
         f"💳 Karta: <code>{html.escape(get_setting('card') or '—')}</code>\n"
         f"👤 Egasi: {html.escape(get_setting('holder') or '—')}\n"
         "💎 Paketlar (oddiy / obunachiga):\n" + "\n".join(
-            f"   • {T['uz']['pkg_' + k]}: {money(pkg_base_price(k))} / {money(pkg_base_price(k) // 2)} so'm"
+            f"   • {T['uz']['pkg_' + k]}: {money(pkg_base_price(k))} / {money(pkg_sub_price(k))} so'm"
             for k in PACKAGES) + "\n"
         f"🤖 Aqlli chek tekshiruvi: {'yoqilgan' if auto_cheque_on() else 'o‘chirilgan' + ('' if client else ' (Claude kaliti yo‘q)')}\n"
         f"👑 Adminlar soni: {len(admin_ids())}\n\n" + ADMIN_HELP,
@@ -1301,10 +1309,14 @@ async def cmd_setpaket(message: Message, command: CommandObject):
         return
     args = (command.args or "").replace(" 000", "000").split()
     keys = ", ".join(PACKAGES)
-    if len(args) != 2 or args[0] not in PACKAGES or not args[1].isdigit():
-        return await message.answer(f"Masalan: /setpaket month 80000\nPaketlar: {keys}")
-    set_setting(f"pkg_{args[0]}", args[1])
-    await message.answer(f"✅ {T['uz']['pkg_' + args[0]]}: {money(args[1])} so'm (obunachiga {money(int(args[1]) // 2)})")
+    if len(args) not in (2, 3) or args[0] not in PACKAGES or not all(a.isdigit() for a in args[1:]):
+        return await message.answer(f"Masalan: /setpaket month 80000 50000\n"
+                                    f"(oddiy narx, obunachiga narx)\nPaketlar: {keys}")
+    set_setting(f"pkgp_{args[0]}", args[1])
+    if len(args) == 3:
+        set_setting(f"pkgs_{args[0]}", args[2])
+    await message.answer(f"✅ {T['uz']['pkg_' + args[0]]}: {money(pkg_base_price(args[0]))} so'm "
+                         f"(obunachiga {money(pkg_sub_price(args[0]))})")
 
 
 @admin_router.message(Command("ban", "unban"))
@@ -1642,8 +1654,8 @@ def make_web_app() -> web.Application:
             "calcs": int(user_field(uid, "calc_paid", 0) or 0) if uid else 0,
             "daily_limit": DAILY_LIMIT,
             "packages": [
-                {"key": k, "base": pkg_base_price(k), "price": pkg_base_price(k) // 2 if sub else pkg_base_price(k),
-                 "days": PACKAGES[k][1]}
+                {"key": k, "base": pkg_base_price(k), "price": pkg_sub_price(k) if sub else pkg_base_price(k),
+                 "days": PACKAGES[k][2]}
                 for k in PACKAGES
             ],
         })
