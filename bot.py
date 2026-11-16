@@ -143,6 +143,7 @@ PACKAGES = {
     "vip": (100000, 365),
 }
 ONCE_QUESTIONS, ONCE_CALCS = 3, 1
+EFFECT_PARTY = "5046509860389126442"  # 🎉 Telegram message effect
 
 
 def pkg_base_price(key: str) -> int:
@@ -737,7 +738,10 @@ async def got_ig(message: Message, state: FSMContext, bot: Bot):
     else:
         # Avto rejim: darhol ochamiz, adminlar keyin tekshirib bekor qilishi mumkin
         set_user_field(uid, "sub", "ok")
-        await message.answer(T[lang]["sub_ok"], reply_markup=menu_kb(lang))
+        try:
+            await message.answer(T[lang]["sub_ok"], reply_markup=menu_kb(lang), message_effect_id=EFFECT_PARTY)
+        except TelegramBadRequest:
+            await message.answer(T[lang]["sub_ok"], reply_markup=menu_kb(lang))
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="❌ Obuna yo'q — bekor qilish", callback_data=f"adm:sub:no:{uid}",
                                  style=style("danger")),
@@ -981,7 +985,11 @@ async def approve_payment(bot: Bot, pid: int, note: str | None = None) -> bool:
         msg = t["pay_ok_once"].format(q=ONCE_QUESTIONS, c=ONCE_CALCS)
     db.commit()
     await clear_user_state(bot, uid)
-    await bot.send_message(uid, msg, reply_markup=menu_kb(lang), parse_mode="HTML")
+    try:  # 🎉 Telegram xabar effekti (konfetti)
+        await bot.send_message(uid, msg, reply_markup=menu_kb(lang), parse_mode="HTML",
+                               message_effect_id=EFFECT_PARTY)
+    except TelegramBadRequest:
+        await bot.send_message(uid, msg, reply_markup=menu_kb(lang), parse_mode="HTML")
     if note:
         await send_admins(bot, note)
     return True

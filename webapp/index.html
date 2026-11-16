@@ -128,11 +128,19 @@ ul li::before{content:"✓";color:var(--c);font-weight:900;margin-right:8px;text
 .pressed{transform:scale(.955)!important;filter:brightness(1.15)}
 .rp{position:absolute;border-radius:50%;pointer-events:none;background:rgba(165,243,252,.45);transform:scale(0);animation:rip .6s ease-out forwards;z-index:3}
 @keyframes rip{to{transform:scale(1);opacity:0}}
-.cf{position:fixed;top:-12px;width:8px;height:14px;border-radius:2px;z-index:50;pointer-events:none;animation:fall 1.2s cubic-bezier(.3,.6,.4,1) forwards}
+.cf{position:fixed;top:-12px;width:8px;height:14px;border-radius:2px;z-index:70;pointer-events:none;animation:fall 1.2s cubic-bezier(.3,.6,.4,1) forwards}
 @keyframes fall{to{transform:translateY(105vh) rotate(720deg);opacity:.9}}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#071a3a;border:1px solid rgba(34,211,238,.5);
   box-shadow:var(--glow);padding:11px 16px;border-radius:14px;font-size:13.5px;opacity:0;transition:.3s;pointer-events:none;z-index:60;max-width:90vw;text-align:center}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.celebrate{position:fixed;inset:0;z-index:55;display:grid;place-items:center;background:rgba(2,6,18,.72);backdrop-filter:blur(6px);animation:fadeIn .3s both}
+.celebrate .box{text-align:center;padding:26px 22px;border-radius:24px;border:1px solid rgba(34,211,238,.6);background:linear-gradient(145deg,#0b2a5b,#071531);
+  box-shadow:0 0 40px rgba(34,211,238,.55);max-width:300px;animation:pop2 .55s cubic-bezier(.2,1.6,.4,1) both}
+.celebrate .big{font-size:58px;display:inline-block;animation:wob 1.4s ease-in-out infinite;filter:drop-shadow(0 0 14px #22d3ee)}
+.celebrate h3{font-size:20px;font-weight:900;margin:10px 0 6px}
+.celebrate p{color:#b9d6f2;font-size:14px;line-height:1.45;margin-bottom:16px}
+@keyframes fadeIn{from{opacity:0}}
+@keyframes pop2{0%{transform:scale(.6);opacity:0}100%{transform:scale(1);opacity:1}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}.card{opacity:1}}
 </style>
 </head>
@@ -208,6 +216,7 @@ const L = {
     stVip:u=>`💎 Paketingiz faol: <b>${u}</b> gacha — savollar va hisoblash cheksiz.`,
     stCred:(q,c)=>`📦 Sizda: <b>${q}</b> ta savol, <b>${c}</b> ta hisoblash.`,
     openTg:"Bu sahifani Telegram ichida oching",
+    yayH:"Paketingiz faollashdi!", yayVip:u=>`${u} gacha savollar va hisoblash cheksiz.`, yayCred:(q,c)=>`Sizda ${q} ta savol va ${c} ta hisoblash bor.`, yayOk:"Zo'r! 🚀",
   },
   ru: {
     title:"Определение дня овуляции", doctor:"Помощник уролога-андролога",
@@ -226,6 +235,7 @@ const L = {
     stVip:u=>`💎 Ваш пакет активен до <b>${u}</b> — вопросы и расчёты без ограничений.`,
     stCred:(q,c)=>`📦 У вас: <b>${q}</b> вопр., <b>${c}</b> расчёт(ов).`,
     openTg:"Откройте эту страницу внутри Telegram",
+    yayH:"Пакет активирован!", yayVip:u=>`До ${u} вопросы и расчёты без ограничений.`, yayCred:(q,c)=>`У вас ${q} вопр. и ${c} расчёт(ов).`, yayOk:"Отлично! 🚀",
   }
 };
 const t = k => L[lang][k];
@@ -302,6 +312,26 @@ function render(){
   document.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => choose(b.dataset.pick));
 }
 
+/* sotib olgandan keyin birinchi ochilishda — bayram */
+function maybeCelebrate(s){
+  const sig = s.vip_until ? "v:" + s.vip_until : ((s.credits || s.calcs) ? "c:" + s.credits + ":" + s.calcs : "");
+  let seen = ""; try { seen = localStorage.getItem("seenPkg") || ""; } catch(e){}
+  if (!sig) return;
+  try { localStorage.setItem("seenPkg", sig); } catch(e){}
+  if (sig === seen) return;
+  if (sig.startsWith("c:") && seen.startsWith("c:")) {   // savol ishlatilganda emas, faqat ko'payganda
+    const [, q0, c0] = seen.split(":").map(Number), [, q1, c1] = sig.split(":").map(Number);
+    if (q1 <= q0 && c1 <= c0) return;
+  }
+  const d = document.createElement("div"); d.className = "celebrate";
+  d.innerHTML = `<div class="box"><span class="big">🎉</span><h3>${t("yayH")}</h3>
+    <p>${s.vip_until ? t("yayVip")(s.vip_until) : t("yayCred")(s.credits, s.calcs)}</p>
+    <button class="btn">${t("yayOk")}</button></div>`;
+  document.body.appendChild(d); confetti(); setTimeout(confetti, 700);
+  try { tg && tg.HapticFeedback.notificationOccurred("success"); } catch(e){}
+  d.querySelector("button").onclick = () => { hap(); d.remove(); };
+}
+
 function choose(k){
   selected = k;
   document.querySelectorAll(".card").forEach(x => x.classList.toggle("sel", x.dataset.k === k));
@@ -334,7 +364,8 @@ if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor("#06122b"); tg.setBac
 render();
 fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ initData: (tg && tg.initData) || "" }) })
-  .then(r => r.json()).then(d => { d.__fresh = JSON.stringify(d.packages) !== JSON.stringify(DEFAULT); state = d; render(); }).catch(() => {});
+  .then(r => r.json()).then(d => { d.__fresh = JSON.stringify(d.packages) !== JSON.stringify(DEFAULT); state = d; render();
+    if (d.ok) setTimeout(() => maybeCelebrate(d), 500); }).catch(() => {});
 </script>
 </body>
 </html>
