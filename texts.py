@@ -13,8 +13,8 @@ T = {
         "welcome": (
             "Assalomu alaykum! 👋\n"
             "Men shifokorning yordamchi botiman.\n\n"
-            "Hozir ovulyatsiya kuningizni taxminiy hisoblab beraman. "
-            "Buning uchun 3 ta savolga javob bering."
+            "Ovulyatsiya kuningizni hisoblab beraman va savollaringizga javob beraman.\n\n"
+            "🎁 Shifokorning Instagram sahifasiga obuna bo'lsangiz — 50% chegirma!"
         ),
         "q1": (
             "1️⃣ Oxirgi hayzingiz qachon boshlangan?\n\n"
@@ -78,7 +78,7 @@ T = {
         "bad_ig": "Username'ni tushunmadim 🙏 Masalan: madina_01",
         "sub_sent": "⏳ So'rovingiz yuborildi. Obunangiz tekshirilgach, sizga xabar keladi.",
         "sub_pending": "⏳ So'rovingiz tekshirilmoqda. Tasdiqlangach, sizga xabar keladi.",
-        "sub_ok": "✅ Obunangiz tasdiqlandi! Rahmat 🌸\n\nEndi ovulyatsiyani hisoblashingiz mumkin. Savollar siz uchun 50% chegirma bilan.",
+        "sub_ok": "✅ Obunangiz tasdiqlandi! Rahmat 🌸\n\nEndi ovulyatsiyani hisoblash va savollar siz uchun 50% chegirma bilan — 5 000 so'm. Kerakli tugmani qayta bosing 👇",
         "sub_no": "❌ Obuna topilmadi. Iltimos, Instagram sahifaga obuna bo'lib, qaytadan «✅ Obuna bo'ldim» tugmasini bosing.",
         # --- Pullik savol ---
         "pay_info": (
@@ -89,7 +89,7 @@ T = {
         ),
         "pay_discount": " (obunachilar uchun 50% chegirma 🎁)",
         "pay_sub_hint": (
-            "🎁 Savolingizga {sub_price} so'mga (50% chegirma bilan) javob olish uchun, iltimos, "
+            "🎁 {sub_price} so'mga (50% chegirma bilan) olish uchun, iltimos, "
             "quyidagi havola orqali o'tib, shifokorning Instagram sahifasiga obuna bo'ling, "
             "so'ng «✅ Obuna bo'ldim» tugmasini bosing 👇"
         ),
@@ -97,7 +97,7 @@ T = {
         "btn_pay_calc": "💳 {price} so'm to'lab hisoblash",
         "sub_or_pay": "💳 Yoki obuna bo'lmasdan, {price} so'm to'lab hisoblatishingiz mumkin.",
         "pay_info_calc": (
-            "🗓 Ovulyatsiya kunini hisoblash narxi: {price} so'm\n\n"
+            "🗓 Ovulyatsiya kunini hisoblash narxi: {price} so'm{discount}\n\n"
             "💳 Karta: {card}\n"
             "👤 {holder}\n\n"
             "To'lovni qilgach, chekni (skrinshot) shu yerga yuboring 👇"
@@ -117,8 +117,8 @@ T = {
         "welcome": (
             "Здравствуйте! 👋\n"
             "Я бот-помощник врача.\n\n"
-            "Сейчас я примерно рассчитаю день вашей овуляции. "
-            "Для этого ответьте на 3 вопроса."
+            "Я рассчитаю день вашей овуляции и отвечу на ваши вопросы.\n\n"
+            "🎁 Подпишитесь на Instagram-страницу врача — скидка 50%!"
         ),
         "q1": (
             "1️⃣ Когда началась ваша последняя менструация?\n\n"
@@ -182,7 +182,7 @@ T = {
         "bad_ig": "Не понял username 🙏 Например: madina_01",
         "sub_sent": "⏳ Запрос отправлен. После проверки подписки вам придёт сообщение.",
         "sub_pending": "⏳ Ваш запрос проверяется. После подтверждения вам придёт сообщение.",
-        "sub_ok": "✅ Подписка подтверждена! Спасибо 🌸\n\nТеперь вы можете рассчитать овуляцию. Вопросы для вас со скидкой 50%.",
+        "sub_ok": "✅ Подписка подтверждена! Спасибо 🌸\n\nТеперь расчёт овуляции и вопросы для вас со скидкой 50% — 5 000 сум. Нажмите нужную кнопку ещё раз 👇",
         "sub_no": "❌ Подписка не найдена. Подпишитесь на страницу в Instagram и снова нажмите «✅ Я подписался(ась)».",
         # --- Платный вопрос ---
         "pay_info": (
@@ -193,7 +193,7 @@ T = {
         ),
         "pay_discount": " (скидка 50% для подписчиков 🎁)",
         "pay_sub_hint": (
-            "🎁 Чтобы получить ответ на вопрос за {sub_price} сум (скидка 50%), пожалуйста, "
+            "🎁 Чтобы получить за {sub_price} сум (скидка 50%), пожалуйста, "
             "перейдите по ссылке ниже и подпишитесь на Instagram-страницу врача, "
             "затем нажмите «✅ Я подписался(ась)» 👇"
         ),
@@ -201,7 +201,7 @@ T = {
         "btn_pay_calc": "💳 Оплатить {price} сум и рассчитать",
         "sub_or_pay": "💳 Или без подписки — оплатите {price} сум и получите расчёт.",
         "pay_info_calc": (
-            "🗓 Стоимость расчёта дня овуляции: {price} сум\n\n"
+            "🗓 Стоимость расчёта дня овуляции: {price} сум{discount}\n\n"
             "💳 Карта: {card}\n"
             "👤 {holder}\n\n"
             "После оплаты отправьте сюда чек (скриншот) 👇"
