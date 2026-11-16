@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Paketlar</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{
+  --bg:#120a1f; --bg2:#1d0f2e; --card:rgba(40,22,62,.72); --line:rgba(255,255,255,.08);
+  --t:#f7eefc; --m:#c7b3d8; --a:#ec4899; --a2:#8b5cf6; --gold:#f5c451; --ok:#34d399;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{background:var(--bg);color:var(--t);font-family:Inter,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100%}
+body{background:
+  radial-gradient(120% 60% at 100% 0%,rgba(236,72,153,.28),transparent 60%),
+  radial-gradient(90% 50% at 0% 20%,rgba(139,92,246,.30),transparent 60%),
+  linear-gradient(180deg,var(--bg2),var(--bg) 60%);background-attachment:fixed;padding:18px 16px 110px}
+.top{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.logo{width:52px;height:52px;border-radius:16px;flex:none;position:relative;
+  background:radial-gradient(circle at 40% 38%,#ffe2f0 0 18%,#f472b6 19% 34%,transparent 35%),
+  radial-gradient(circle,rgba(255,255,255,.18) 0 46%,transparent 47%),linear-gradient(135deg,#4c1d95,#be185d);
+  box-shadow:0 8px 24px rgba(236,72,153,.35)}
+.top>div:nth-child(2){min-width:0;flex:1}
+.top h1{font-size:18px;font-weight:800;line-height:1.15}
+.top p{font-size:13px;color:var(--m);margin-top:2px}
+.lang{flex:none;display:flex;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.lang button{background:none;border:0;color:var(--m);font:600 12px inherit;padding:7px 9px;cursor:pointer}
+.lang button.on{background:linear-gradient(135deg,var(--a2),var(--a));color:#fff}
+.status{border:1px solid var(--line);background:var(--card);backdrop-filter:blur(10px);border-radius:18px;padding:14px 16px;margin-bottom:14px;font-size:14px;display:none}
+.status b{color:#fff}
+.status.vip{border-color:rgba(245,196,81,.5);background:linear-gradient(135deg,rgba(245,196,81,.16),rgba(40,22,62,.72))}
+.promo{border-radius:20px;padding:16px;margin-bottom:18px;position:relative;overflow:hidden;
+  background:linear-gradient(135deg,rgba(236,72,153,.95),rgba(139,92,246,.95));box-shadow:0 12px 30px rgba(236,72,153,.25)}
+.promo h3{font-size:17px;font-weight:800}
+.promo p{font-size:13.5px;opacity:.95;margin:6px 0 12px;line-height:1.4}
+.promo .row{display:flex;gap:8px}
+.promo button{flex:1;border:0;border-radius:12px;padding:11px 8px;font:700 13.5px inherit;cursor:pointer}
+.promo .ig{background:#fff;color:#be185d}
+.promo .done{background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.4)}
+.promo.on{background:linear-gradient(135deg,rgba(52,211,153,.9),rgba(16,185,129,.85))}
+h2{font-size:22px;font-weight:800;margin:4px 2px 4px}
+.sub{color:var(--m);font-size:13.5px;margin:0 2px 14px;line-height:1.4}
+.card{position:relative;border:1.5px solid var(--line);background:var(--card);backdrop-filter:blur(10px);
+  border-radius:20px;padding:16px 16px 14px;margin-bottom:12px;cursor:pointer;transition:transform .12s,border-color .2s,box-shadow .2s}
+.card:active{transform:scale(.985)}
+.card.sel{border-color:var(--a);box-shadow:0 0 0 3px rgba(236,72,153,.18),0 10px 30px rgba(236,72,153,.18)}
+.card.best{border-color:rgba(139,92,246,.7)}
+.card.vip{border-color:rgba(245,196,81,.55);background:linear-gradient(140deg,rgba(245,196,81,.14),rgba(40,22,62,.78) 55%)}
+.card.vip.sel{border-color:var(--gold);box-shadow:0 0 0 3px rgba(245,196,81,.2),0 10px 30px rgba(245,196,81,.18)}
+.badge{position:absolute;top:14px;right:14px;font:700 11.5px inherit;padding:5px 10px;border-radius:999px;
+  background:linear-gradient(135deg,var(--a2),var(--a));color:#fff}
+.vip .badge{background:linear-gradient(135deg,#f59e0b,var(--gold));color:#3b2600}
+.name{font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px}
+.price{margin:8px 0 8px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.price .now{font-size:28px;font-weight:800;letter-spacing:-.5px}
+.price .cur{font-size:15px;font-weight:700;color:var(--m)}
+.price .old{font-size:14px;color:var(--m);text-decoration:line-through;opacity:.8}
+.price .off{font:700 11.5px inherit;color:#fff;background:var(--ok);border-radius:8px;padding:2px 7px}
+ul{list-style:none;font-size:13.5px;color:var(--m);display:grid;gap:5px}
+ul li::before{content:"✓";color:var(--a);font-weight:800;margin-right:8px}
+.vip ul li::before{color:var(--gold)}
+.note{text-align:center;color:var(--m);font-size:12.5px;margin-top:14px;line-height:1.5}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#2a1640;border:1px solid var(--line);
+  padding:10px 16px;border-radius:12px;font-size:13.5px;opacity:0;transition:opacity .25s;pointer-events:none}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="logo"></div>
+  <div>
+    <h1 data-x="title">Ovulyatsiya kunini aniqlash</h1>
+    <p data-x="doctor">Urolog-androlog yordamchisi</p>
+  </div>
+  <div class="lang"><button data-l="uz">UZ</button><button data-l="ru">RU</button></div>
+</div>
+
+<div class="status" id="status"></div>
+
+<div class="promo" id="promo" style="display:none">
+  <h3 data-x="promoH">🎁 −50% chegirma</h3>
+  <p data-x="promoP">Shifokorning Instagram sahifasiga obuna bo'ling — barcha paketlar yarim narxda!</p>
+  <div class="row">
+    <button class="ig" id="igBtn" data-x="promoIg">📸 Obuna bo'lish</button>
+    <button class="done" id="doneBtn" data-x="promoDone">✅ Obuna bo'ldim</button>
+  </div>
+</div>
+
+<h2 data-x="h">💎 Paketlar</h2>
+<p class="sub" data-x="hp">Paketni tanlang — savollaringizga to'liq javob va ovulyatsiya kunini hisoblash.</p>
+<div id="list"></div>
+<p class="note" data-x="note">To'lov — karta orqali. Chekni botga yuborasiz, bot uni avtomatik tekshirib, paketni faollashtiradi.</p>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const tg = window.Telegram && window.Telegram.WebApp;
+const qs = new URLSearchParams(location.search);
+let lang = (qs.get("lang") === "ru") ? "ru" : "uz";
+let state = null, selected = null;
+
+const DEFAULT = [
+  {key:"once", base:5000, price:5000, days:0},
+  {key:"day", base:10000, price:10000, days:1},
+  {key:"week", base:50000, price:50000, days:7},
+  {key:"month", base:80000, price:80000, days:30},
+  {key:"vip", base:100000, price:100000, days:365},
+];
+
+const L = {
+  uz: {
+    title:"Ovulyatsiya kunini aniqlash", doctor:"Urolog-androlog yordamchisi",
+    promoH:"🎁 −50% chegirma", promoP:"Shifokorning Instagram sahifasiga obuna bo'ling — barcha paketlar yarim narxda!",
+    promoIg:"📸 Obuna bo'lish", promoDone:"✅ Obuna bo'ldim",
+    promoOnH:"🎁 Sizga −50% chegirma faol", promoOnP:"Siz Instagram obunachisisiz — barcha paketlar yarim narxda. Rahmat! 🌸",
+    h:"💎 Paketlar", hp:"Paketni tanlang — savollaringizga to'liq javob va ovulyatsiya kunini hisoblash.",
+    note:"To'lov — karta orqali. Chekni botga yuborasiz, bot uni avtomatik tekshirib, paketni faollashtiradi.",
+    cur:"so'm", best:"Eng foydali", vipB:"VIP",
+    n_once:"⚡ 1 martalik", n_day:"☀️ Kunlik", n_week:"📅 Haftalik", n_month:"🌙 Oylik", n_vip:"👑 VIP yillik",
+    per_once:"", per_day:"/ 1 kun", per_week:"/ 7 kun", per_month:"/ 30 kun", per_vip:"/ 365 kun",
+    f_once:["3 ta savolga to'liq javob","1 ta ovulyatsiya hisoblash","Muddat cheklanmagan"],
+    f_time:(d,l)=>[`${d} kun davomida savollar cheksiz*`,"Ovulyatsiya hisoblash cheksiz","Javob bir necha soniyada"],
+    limit:l=>`* kuniga ${l} tagacha savol`,
+    choose:p=>`Tanlash — ${p} so'm`, picked:"Paket tanlandi — botga qayting 👇",
+    stVip:u=>`💎 Paketingiz faol: <b>${u}</b> gacha — savollar va hisoblash cheksiz.`,
+    stCred:(q,c)=>`📦 Sizda: <b>${q}</b> ta savol, <b>${c}</b> ta hisoblash.`,
+    openTg:"Bu sahifani Telegram ichida oching",
+  },
+  ru: {
+    title:"Определение дня овуляции", doctor:"Помощник уролога-андролога",
+    promoH:"🎁 Скидка −50%", promoP:"Подпишитесь на Instagram-страницу врача — все пакеты за полцены!",
+    promoIg:"📸 Подписаться", promoDone:"✅ Я подписался(ась)",
+    promoOnH:"🎁 Ваша скидка −50% активна", promoOnP:"Вы подписчик Instagram — все пакеты за полцены. Спасибо! 🌸",
+    h:"💎 Пакеты", hp:"Выберите пакет — полные ответы на вопросы и расчёт дня овуляции.",
+    note:"Оплата — картой. Отправьте чек в бот: он сам проверит его и активирует пакет.",
+    cur:"сум", best:"Выгоднее всего", vipB:"VIP",
+    n_once:"⚡ Разовый", n_day:"☀️ На день", n_week:"📅 На неделю", n_month:"🌙 На месяц", n_vip:"👑 VIP на год",
+    per_once:"", per_day:"/ 1 день", per_week:"/ 7 дней", per_month:"/ 30 дней", per_vip:"/ 365 дней",
+    f_once:["Полные ответы на 3 вопроса","1 расчёт овуляции","Без срока действия"],
+    f_time:(d,l)=>[`${d} дн. — вопросы без ограничений*`,"Расчёт овуляции без ограничений","Ответ за несколько секунд"],
+    limit:l=>`* до ${l} вопросов в день`,
+    choose:p=>`Выбрать — ${p} сум`, picked:"Пакет выбран — вернитесь в бот 👇",
+    stVip:u=>`💎 Ваш пакет активен до <b>${u}</b> — вопросы и расчёты без ограничений.`,
+    stCred:(q,c)=>`📦 У вас: <b>${q}</b> вопр., <b>${c}</b> расчёт(ов).`,
+    openTg:"Откройте эту страницу внутри Telegram",
+  }
+};
+const t = k => L[lang][k];
+const fmt = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+const toast = s => { const e = document.getElementById("toast"); e.textContent = s; e.classList.add("show"); setTimeout(()=>e.classList.remove("show"), 2200); };
+const hap = s => { try { tg.HapticFeedback.impactOccurred(s || "light"); } catch(e){} };
+
+function render(){
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-x]").forEach(e => { const v = t(e.dataset.x); if (typeof v === "string") e.textContent = v; });
+  document.querySelectorAll(".lang button").forEach(b => b.classList.toggle("on", b.dataset.l === lang));
+  const s = state || {};
+  // promo
+  const promo = document.getElementById("promo");
+  promo.style.display = s.insta ? "block" : "none";
+  if (s.insta && s.sub) {
+    promo.classList.add("on");
+    promo.querySelector("h3").textContent = t("promoOnH");
+    promo.querySelector("p").textContent = t("promoOnP");
+    promo.querySelector(".row").style.display = "none";
+  }
+  // status
+  const st = document.getElementById("status");
+  if (s.vip_until) { st.innerHTML = t("stVip")(s.vip_until); st.className = "status vip"; st.style.display = "block"; }
+  else if (s.credits || s.calcs) { st.innerHTML = t("stCred")(s.credits, s.calcs); st.className = "status"; st.style.display = "block"; }
+  else st.style.display = "none";
+  // cards
+  const pk = (s.packages && s.packages.length) ? s.packages : DEFAULT;
+  const lim = s.daily_limit || 15;
+  document.getElementById("list").innerHTML = pk.map(p => {
+    const cls = p.key === "vip" ? "vip" : (p.key === "month" ? "best" : "");
+    const badge = p.key === "month" ? `<span class="badge">${t("best")}</span>` : (p.key === "vip" ? `<span class="badge">${t("vipB")}</span>` : "");
+    const feats = p.days ? [...t("f_time")(p.days, lim)] : t("f_once");
+    const old = p.price !== p.base ? `<span class="old">${fmt(p.base)}</span><span class="off">−50%</span>` : "";
+    return `<div class="card ${cls} ${selected === p.key ? "sel" : ""}" data-k="${p.key}">
+      ${badge}
+      <div class="name">${t("n_" + p.key)}</div>
+      <div class="price"><span class="now">${fmt(p.price)}</span><span class="cur">${t("cur")} ${t("per_" + p.key)}</span>${old}</div>
+      <ul>${feats.map(f => `<li>${f}</li>`).join("")}</ul>
+      ${p.days && p.key === "day" ? `<p class="note" style="text-align:left;margin-top:8px">${t("limit")(lim)}</p>` : ""}
+    </div>`;
+  }).join("");
+  document.querySelectorAll(".card").forEach(c => c.onclick = () => pick(c.dataset.k));
+  updateMain();
+}
+
+function pick(k){
+  selected = k; hap("light"); render();
+}
+
+function updateMain(){
+  if (!tg || !tg.MainButton) return;
+  const pk = ((state && state.packages) || DEFAULT).find(p => p.key === selected);
+  if (!pk) { tg.MainButton.hide(); return; }
+  tg.MainButton.setParams({ text: t("choose")(fmt(pk.price)), color: selected === "vip" ? "#d4a017" : "#db2777", text_color: "#ffffff" });
+  tg.MainButton.show();
+}
+
+function send(data){
+  if (!tg || !tg.sendData || !tg.initData) return toast(t("openTg"));
+  hap("medium");
+  tg.sendData(JSON.stringify(Object.assign({ lang }, data)));
+}
+
+document.querySelectorAll(".lang button").forEach(b => b.onclick = () => { lang = b.dataset.l; hap(); render(); });
+document.getElementById("igBtn").onclick = () => {
+  const url = (state && state.insta) || "";
+  if (!url) return;
+  hap(); if (tg && tg.openLink) tg.openLink(url); else window.open(url, "_blank");
+};
+document.getElementById("doneBtn").onclick = () => send({ cmd: "subbed" });
+
+if (tg) {
+  tg.ready(); tg.expand();
+  try { tg.setHeaderColor("#1d0f2e"); tg.setBackgroundColor("#120a1f"); } catch(e){}
+  tg.MainButton.onClick(() => { if (selected) send({ pkg: selected }); });
+}
+
+render();
+fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ initData: (tg && tg.initData) || "" }) })
+  .then(r => r.json()).then(d => { state = d; render(); }).catch(() => {});
+</script>
+</body>
+</html>

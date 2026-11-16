@@ -112,6 +112,35 @@ T = {
         "pay_no": "❌ To'lov topilmadi. Agar to'lagan bo'lsangiz, chekni qaytadan yuboring.",
         "ask_question": "✍️ Savolingizni batafsil yozing, to'liq javob beraman.",
         "credit_left": "\n\n💬 Qolgan savollar: {n}",
+        # --- Paketlar ---
+        "btn_pkgs": "💎 Paketlar",
+        "sum": "so'm",
+        "pkg_once": "⚡ 1 martalik",
+        "pkg_day": "☀️ Kunlik",
+        "pkg_week": "📅 Haftalik",
+        "pkg_month": "🌙 Oylik",
+        "pkg_vip": "👑 VIP yillik",
+        "pkgd_once": "3 ta savol + 1 ta ovulyatsiya hisoblash",
+        "pkgd_day": "1 kun — savollar va hisoblash cheksiz",
+        "pkgd_week": "7 kun — savollar va hisoblash cheksiz",
+        "pkgd_month": "30 kun — savollar va hisoblash cheksiz",
+        "pkgd_vip": "365 kun — savollar va hisoblash cheksiz",
+        "pkgs_title": "💎 <b>Paketni tanlang:</b>",
+        "pkgs_sub_on": "🎁 Siz Instagram obunachisisiz — barcha paketlar 50% arzon!",
+        "pkgs_sub_hint": "🎁 Shifokorning Instagram sahifasiga obuna bo'lsangiz — <b>barcha paketlar 50% arzon</b>. Obuna bo'lib, «✅ Obuna bo'ldim» ni bosing 👇",
+        "need_q": "❓ Savolingizga javob olish uchun paket kerak.",
+        "need_calc": "🗓 Ovulyatsiya kunini hisoblash uchun paket kerak.",
+        "pay_info_pkg": (
+            "💎 Paket: <b>{name}</b>\n"
+            "📦 {what}\n"
+            "💵 Narx: <b>{price} so'm</b>{discount}\n\n"
+            "💳 Karta: {card}\n"
+            "👤 {holder}\n\n"
+            "To'lovni qilgach, chekni (skrinshot) shu yerga yuboring 👇"
+        ),
+        "pay_ok_once": "✅ To'lov tasdiqlandi! Rahmat 🌸\n\nSizda {q} ta savol va {c} ta ovulyatsiya hisoblash bor. Kerakli tugmani bosing 👇",
+        "pay_ok_vip": "✅ To'lov tasdiqlandi! Rahmat 🌸\n\n💎 {name} paket faollashdi: <b>{until}</b> gacha savollar va hisoblash cheksiz (kuniga {limit} tagacha savol).",
+        "vip_left": "\n\n💎 Paketingiz {until} gacha faol",
     },
     "ru": {
         "welcome": (
@@ -216,5 +245,34 @@ T = {
         "pay_no": "❌ Оплата не найдена. Если вы оплатили, отправьте чек ещё раз.",
         "ask_question": "✍️ Подробно напишите ваш вопрос, я дам полный ответ.",
         "credit_left": "\n\n💬 Осталось вопросов: {n}",
+        # --- Пакеты ---
+        "btn_pkgs": "💎 Пакеты",
+        "sum": "сум",
+        "pkg_once": "⚡ Разовый",
+        "pkg_day": "☀️ На день",
+        "pkg_week": "📅 На неделю",
+        "pkg_month": "🌙 На месяц",
+        "pkg_vip": "👑 VIP на год",
+        "pkgd_once": "3 вопроса + 1 расчёт овуляции",
+        "pkgd_day": "1 день — вопросы и расчёты без ограничений",
+        "pkgd_week": "7 дней — вопросы и расчёты без ограничений",
+        "pkgd_month": "30 дней — вопросы и расчёты без ограничений",
+        "pkgd_vip": "365 дней — вопросы и расчёты без ограничений",
+        "pkgs_title": "💎 <b>Выберите пакет:</b>",
+        "pkgs_sub_on": "🎁 Вы подписчик Instagram — все пакеты на 50% дешевле!",
+        "pkgs_sub_hint": "🎁 Подпишитесь на Instagram-страницу врача — <b>все пакеты на 50% дешевле</b>. После подписки нажмите «✅ Я подписался(ась)» 👇",
+        "need_q": "❓ Чтобы получить ответ на вопрос, нужен пакет.",
+        "need_calc": "🗓 Для расчёта дня овуляции нужен пакет.",
+        "pay_info_pkg": (
+            "💎 Пакет: <b>{name}</b>\n"
+            "📦 {what}\n"
+            "💵 Цена: <b>{price} сум</b>{discount}\n\n"
+            "💳 Карта: {card}\n"
+            "👤 {holder}\n\n"
+            "После оплаты отправьте сюда чек (скриншот) 👇"
+        ),
+        "pay_ok_once": "✅ Оплата подтверждена! Спасибо 🌸\n\nУ вас {q} вопроса и {c} расчёт овуляции. Нажмите нужную кнопку 👇",
+        "pay_ok_vip": "✅ Оплата подтверждена! Спасибо 🌸\n\n💎 Пакет {name} активен: до <b>{until}</b> вопросы и расчёты без ограничений (до {limit} вопросов в день).",
+        "vip_left": "\n\n💎 Ваш пакет активен до {until}",
     },
 }

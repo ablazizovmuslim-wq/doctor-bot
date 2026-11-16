@@ -2,6 +2,9 @@
 
 import asyncio
 import base64
+import hashlib
+import hmac
+import urllib.parse
 import contextvars
 import html
 import io
@@ -13,7 +16,10 @@ import sqlite3
 import time
 from collections import defaultdict, deque
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
+
+from aiohttp import web
 
 from PIL import Image
 
@@ -30,6 +36,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     KeyboardButton,
     LinkPreviewOptions,
+    WebAppInfo,
     Message,
     ReplyKeyboardMarkup,
 )
@@ -79,7 +86,7 @@ db.executescript(
 # users jadvaliga yangi ustunlar (eski bazada bo'lmasa qo'shiladi)
 _cols = {r[1] for r in db.execute("PRAGMA table_info(users)").fetchall()}
 for _col, _type in [("sub", "TEXT DEFAULT ''"), ("ig", "TEXT"), ("credits", "INTEGER DEFAULT 0"),
-                    ("banned", "INTEGER DEFAULT 0"), ("calc_paid", "INTEGER DEFAULT 0")]:
+                    ("banned", "INTEGER DEFAULT 0"), ("calc_paid", "INTEGER DEFAULT 0"), ("vip_until", "TEXT")]:
     if _col not in _cols:
         db.execute(f"ALTER TABLE users ADD COLUMN {_col} {_type}")
 if "purpose" not in {r[1] for r in db.execute("PRAGMA table_info(payments)").fetchall()}:
@@ -122,15 +129,53 @@ def is_subscribed(uid: int) -> bool:
     return user_field(uid, "sub", "") == "ok"
 
 
-def pack_size() -> int:
-    try:
-        return max(1, int(get_setting("pack") or 3))
-    except ValueError:
-        return 3
-
-
 def money(n: int | str) -> str:
     return f"{int(n):,}".replace(",", " ")
+
+
+# ---------- 💎 Paketlar ----------
+# key: (asosiy narx, kunlar; 0 = bir martalik)
+PACKAGES = {
+    "once": (5000, 0),
+    "day": (10000, 1),
+    "week": (50000, 7),
+    "month": (80000, 30),
+    "vip": (100000, 365),
+}
+ONCE_QUESTIONS, ONCE_CALCS = 3, 1
+
+
+def pkg_base_price(key: str) -> int:
+    try:
+        return int(get_setting(f"pkg_{key}") or PACKAGES[key][0])
+    except (ValueError, KeyError):
+        return PACKAGES.get(key, (0, 0))[0]
+
+
+def pkg_price(key: str, uid: int) -> int:
+    base = pkg_base_price(key)
+    return base // 2 if is_subscribed(uid) else base
+
+
+def vip_until(uid: int) -> datetime | None:
+    v = user_field(uid, "vip_until")
+    try:
+        return datetime.fromisoformat(v) if v else None
+    except ValueError:
+        return None
+
+
+def vip_active(uid: int) -> bool:
+    u = vip_until(uid)
+    return bool(u and u > now())
+
+
+def can_ask(uid: int) -> bool:
+    return privileged(uid) or vip_active(uid) or int(user_field(uid, "credits", 0) or 0) > 0
+
+
+def can_calc(uid: int) -> bool:
+    return privileged(uid) or vip_active(uid) or int(user_field(uid, "calc_paid", 0) or 0) > 0
 
 
 def now() -> datetime:
@@ -190,10 +235,11 @@ def write_log(uid, kind, question, answer, in_tok=0, out_tok=0, model=""):
 # Premium (custom) emoji ID'lari Railway Variables orqali beriladi: EMOJI_CALC, EMOJI_OTHER, ...
 # ID'ni bilish uchun botga "/emoji 😀" deb premium emoji bilan yozing.
 # Ishlashi uchun bot egasida Telegram Premium bo'lishi kerak.
-ICON_KEYS = ["calc", "other", "lang", "yes", "no", "uz", "ru"]
+ICON_KEYS = ["calc", "other", "pkg", "lang", "yes", "no", "uz", "ru"]
 ICON_NAMES = {
     "calc": "🗓 Ovulyatsiyani hisoblash",
     "other": "❓ Boshqa savol",
+    "pkg": "💎 Paketlar",
     "lang": "🌐 Tilni o'zgartirish",
     "yes": "✅ Ha, doim bir xil",
     "no": "❌ Yo'q, o'zgarib turadi",
@@ -271,16 +317,20 @@ def lang_kb() -> InlineKeyboardMarkup:
     )
 
 
+WEBAPP_URL = os.getenv("WEBAPP_URL", "").rstrip("/")
+
+
 def menu_kb(lang: str) -> ReplyKeyboardMarkup:
     t = T[lang]
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [kbtn(t["btn_calc"], "calc", "primary")],
-            [kbtn(t["btn_other"], "other", "success")],
-            [kbtn(t["btn_lang"], "lang")],
-        ],
-        resize_keyboard=True,
-    )
+    rows = [
+        [kbtn(t["btn_calc"], "calc", "primary")],
+        [kbtn(t["btn_other"], "other", "success")],
+    ]
+    if WEBAPP_URL:
+        rows.append([KeyboardButton(text=label(t["btn_pkgs"], "pkg"), icon_custom_emoji_id=ICONS.get("pkg"),
+                                    style=style("primary"), web_app=WebAppInfo(url=f"{WEBAPP_URL}/?lang={lang}"))])
+    rows.append([kbtn(t["btn_lang"], "lang")])
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
 
 def cycle_kb() -> InlineKeyboardMarkup:
@@ -627,20 +677,12 @@ def insta_kb(lang: str) -> InlineKeyboardMarkup:
 
 async def ensure_sub(message: Message, lang: str, uid: int) -> bool:
     """Obuna bo'lmagan bo'lsa, obuna bo'lishni so'raydi va False qaytaradi."""
-    if not insta_url() or privileged(uid) or is_subscribed(uid) or user_field(uid, "calc_paid", 0):
+    if not insta_url() or privileged(uid) or is_subscribed(uid):
         return True
     if user_field(uid, "sub", "") == "pending":
         await message.answer(T[lang]["sub_pending"])
         return False
-    t = T[lang]
-    kb = insta_kb(lang)
-    if get_setting("card").strip():
-        kb.inline_keyboard.append([ibtn(t["btn_pay_calc"].format(price=money(get_setting("price_calc"))),
-                                        "pay:calc", st="primary")])
-        text = t["sub_need"] + "\n\n" + t["sub_or_pay"].format(price=money(get_setting("price_calc")))
-    else:
-        text = t["sub_need"]
-    await message.answer(text, reply_markup=kb)
+    await message.answer(T[lang]["sub_need"], reply_markup=insta_kb(lang))
     return False
 
 
@@ -711,50 +753,103 @@ async def got_ig(message: Message, state: FSMContext, bot: Bot):
     )
 
 
-async def show_payment(message: Message, state: FSMContext, lang: str, uid: int, purpose: str = "question") -> None:
+def pkg_line(t: dict, key: str, uid: int) -> str:
+    base, price = pkg_base_price(key), pkg_price(key, uid)
+    cost = f"<s>{money(base)}</s> <b>{money(price)}</b>" if price != base else f"<b>{money(price)}</b>"
+    return f"{t['pkg_' + key]} — {cost} {t['sum']}\n   <i>{t['pkgd_' + key]}</i>"
+
+
+def packages_kb(t: dict, uid: int) -> InlineKeyboardMarkup:
+    rows = [[ibtn(f"{t['pkg_' + k]} — {money(pkg_price(k, uid))}", f"pkg:{k}",
+                  st="success" if k == "month" else ("primary" if k == "vip" else None))] for k in PACKAGES]
+    if not is_subscribed(uid) and insta_url():
+        rows.append([InlineKeyboardButton(text=t["btn_insta_go"], url=insta_url(), style=style("primary"))])
+        rows.append([ibtn(t["btn_subbed"], "sub:req", st="success")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def show_packages(message: Message, lang: str, uid: int, reason: str = "") -> None:
+    """Paket tanlash xabari (savol yoki hisoblash uchun ruxsat bo'lmaganda)."""
+    t = T[lang]
+    if not get_setting("card").strip():
+        await message.answer(t["pay_not_ready"])
+        return
+    if db.execute("SELECT 1 FROM payments WHERE user_id=? AND status='pending'", (uid,)).fetchone():
+        await message.answer(t["pay_pending"])
+        return
+    head = t.get(reason, "") if reason else ""
+    text = (head + "\n\n" if head else "") + t["pkgs_title"] + "\n\n" + "\n\n".join(pkg_line(t, k, uid) for k in PACKAGES)
+    if is_subscribed(uid):
+        text += "\n\n" + t["pkgs_sub_on"]
+    elif insta_url():
+        text += "\n\n" + t["pkgs_sub_hint"]
+    await message.answer(text, parse_mode="HTML", reply_markup=packages_kb(t, uid))
+
+
+async def show_payment(message: Message, state: FSMContext, lang: str, uid: int, pkg: str) -> None:
     t = T[lang]
     card = get_setting("card").strip()
     if not card:
         await message.answer(t["pay_not_ready"])
         return
-    pending = db.execute("SELECT 1 FROM payments WHERE user_id=? AND status='pending'", (uid,)).fetchone()
-    if pending:
+    if db.execute("SELECT 1 FROM payments WHERE user_id=? AND status='pending'", (uid,)).fetchone():
         await message.answer(t["pay_pending"])
         return
+    if pkg not in PACKAGES:
+        pkg = "once"
     sub = is_subscribed(uid)
-    card_txt, holder = f"<code>{html.escape(card)}</code>", html.escape(get_setting("holder") or "—")
-    price = get_setting("price_sub") if sub else get_setting("price_full")
-    text = t["pay_info_calc" if purpose == "calc" else "pay_info"].format(
-        n=pack_size(),
-        price=money(price),
+    text = t["pay_info_pkg"].format(
+        name=t["pkg_" + pkg], what=t["pkgd_" + pkg], price=money(pkg_price(pkg, uid)),
         discount=t["pay_discount"] if sub else "",
-        card=card_txt,
-        holder=holder,
+        card=f"<code>{html.escape(card)}</code>", holder=html.escape(get_setting("holder") or "—"),
     )
-    kb = None
-    if not sub and insta_url():
-        text += "\n\n" + t["pay_sub_hint"].format(sub_price=money(get_setting("price_sub")))
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t["btn_insta_go"], url=insta_url(), style=style("primary"))],
-            [ibtn(t["btn_subbed"], "sub:req", st="success")],
-        ])
     await state.set_state(Pay.receipt)
-    await state.update_data(purpose=purpose)
-    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+    await state.update_data(purpose=pkg)
+    await message.answer(text, parse_mode="HTML")
+
+
+@paid_router.callback_query(F.data.startswith("pkg:"))
+async def cb_pkg(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
+    uid = cb.from_user.id
+    await show_payment(cb.message, state, get_lang(uid), uid, cb.data[4:])
+
+
+@paid_router.message(F.web_app_data)
+async def got_web_app_data(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    lang = get_lang(uid)
+    try:
+        d = json.loads(message.web_app_data.data)
+    except ValueError:
+        return
+    if d.get("lang") in T and d["lang"] != lang:
+        save_user(message, d["lang"])
+        lang = d["lang"]
+    if d.get("pkg") in PACKAGES:
+        await show_payment(message, state, lang, uid, d["pkg"])
+    elif d.get("cmd") == "subbed":
+        st = user_field(uid, "sub", "")
+        if st == "ok":
+            return await message.answer(T[lang]["sub_ok"], reply_markup=menu_kb(lang))
+        await state.set_state(SubIG.wait)
+        await message.answer(T[lang]["ask_ig"])
 
 
 @paid_router.callback_query(F.data == "pay:calc")
-async def cb_pay_calc(cb: CallbackQuery, state: FSMContext):
+async def cb_pay_calc(cb: CallbackQuery):
     await cb.answer()
     uid = cb.from_user.id
-    await show_payment(cb.message, state, get_lang(uid), uid, purpose="calc")
+    await show_packages(cb.message, get_lang(uid), uid, "need_calc")
 
 
 async def handle_receipt(message: Message, bot: Bot, state: FSMContext) -> None:
     uid = message.from_user.id
     lang = get_lang(uid)
     t = T[lang]
-    purpose = (await state.get_data()).get("purpose", "question")
+    purpose = (await state.get_data()).get("purpose", "once")
+    if purpose not in PACKAGES:
+        purpose = "once"
     await state.clear()
     if user_field(uid, "banned", 0):
         await message.answer(t["pay_no"])
@@ -763,7 +858,7 @@ async def handle_receipt(message: Message, bot: Bot, state: FSMContext) -> None:
         await message.answer(t["pay_pending"])
         return
     sub = is_subscribed(uid)
-    amount = int(get_setting("price_sub") if sub else get_setting("price_full"))
+    amount = pkg_price(purpose, uid)
     cur = db.execute(
         "INSERT INTO payments(user_id, amount, status, created_at, purpose) VALUES(?,?,?,?,?)",
         (uid, amount, "pending", now().isoformat(), purpose),
@@ -779,7 +874,7 @@ async def handle_receipt(message: Message, bot: Bot, state: FSMContext) -> None:
     caption = (
         f"💰 <b>To'lov cheki #{pid}</b>\n\n"
         f"👤 {user_label(message.from_user)}\n"
-        f"🎯 Nima uchun: <b>{'ovulyatsiya hisoblash' if purpose == 'calc' else 'savolga javob'}</b>\n"
+        f"💎 Paket: <b>{T['uz']['pkg_' + purpose]}</b> ({T['uz']['pkgd_' + purpose]})\n"
         f"💵 Summa: <b>{money(amount)} so'm</b>"
         + f" ({'obunachi, 50%' if sub else 'oddiy narx'})\n\n"
         "Kartangizga pul tushganini tekshiring."
@@ -868,16 +963,25 @@ async def approve_payment(bot: Bot, pid: int, note: str | None = None) -> bool:
     if not row or row[1] != "pending":
         return False
     uid, purpose = row[0], row[2]
+    if purpose in ("question", "calc"):  # eski to'lovlar
+        purpose = "once"
     db.execute("UPDATE payments SET status='ok' WHERE id=?", (pid,))
-    if purpose == "calc":
-        db.execute("UPDATE users SET calc_paid = COALESCE(calc_paid, 0) + 1 WHERE user_id=?", (uid,))
-    else:
-        db.execute("UPDATE users SET credits = COALESCE(credits, 0) + ? WHERE user_id=?", (pack_size(), uid))
-    db.commit()
     lang = get_lang(uid)
+    t = T[lang]
+    days = PACKAGES.get(purpose, (0, 0))[1]
+    if days:
+        start = max(vip_until(uid) or now(), now())
+        until = start + timedelta(days=days)
+        set_user_field(uid, "vip_until", until.isoformat())
+        msg = t["pay_ok_vip"].format(name=t["pkg_" + purpose], until=until.strftime("%d.%m.%Y %H:%M"),
+                                     limit=DAILY_LIMIT)
+    else:
+        db.execute("UPDATE users SET credits = COALESCE(credits, 0) + ?, calc_paid = COALESCE(calc_paid, 0) + ? "
+                   "WHERE user_id=?", (ONCE_QUESTIONS, ONCE_CALCS, uid))
+        msg = t["pay_ok_once"].format(q=ONCE_QUESTIONS, c=ONCE_CALCS)
+    db.commit()
     await clear_user_state(bot, uid)
-    await bot.send_message(uid, T[lang]["pay_ok_calc" if purpose == "calc" else "pay_ok"].format(n=pack_size()),
-                           reply_markup=menu_kb(lang))
+    await bot.send_message(uid, msg, reply_markup=menu_kb(lang), parse_mode="HTML")
     if note:
         await send_admins(bot, note)
     return True
@@ -1056,8 +1160,8 @@ ADMIN_HELP = (
     "/settings — joriy sozlamalar\n"
     "/setinsta <code>https://instagram.com/username</code> — Instagram sahifa\n"
     "/setcard <code>8600123412341234 Ism Familiya</code> — to'lov kartasi\n"
-    "/setprice <code>10000 5000</code> — narx: oddiy va obunachi (hisoblash va savol)\n"
-    "/setpack <code>3</code> — 1 ta to'lovga nechta savol\n"
+    "/setpaket <code>month 80000</code> — paket narxini o'zgartirish (once, day, week, month, vip)\n"
+    "/vip <code>ID 30</code> — foydalanuvchiga N kunlik paket berish\n"
     "/addcredit <code>ID 1</code> — foydalanuvchiga bepul savol berish\n"
     "/ban <code>ID</code> | /unban <code>ID</code> — yolg'on chek yuborganni bloklash\n"
     "/autochek <code>on</code> | <code>off</code> — chekni avtomatik (aqlli) tekshirish\n"
@@ -1090,8 +1194,9 @@ async def cmd_settings(message: Message):
         f"📷 Instagram: {html.escape(insta_url() or '— (obuna tekshiruvi o‘chiq)')}\n"
         f"💳 Karta: <code>{html.escape(get_setting('card') or '—')}</code>\n"
         f"👤 Egasi: {html.escape(get_setting('holder') or '—')}\n"
-        f"💵 Narx (hisoblash va savol): {money(get_setting('price_full'))} so'm, obunachiga {money(get_setting('price_sub'))} so'm\n"
-        f"❓ 1 to'lov = {pack_size()} ta savol\n"
+        "💎 Paketlar (oddiy / obunachiga):\n" + "\n".join(
+            f"   • {T['uz']['pkg_' + k]}: {money(pkg_base_price(k))} / {money(pkg_base_price(k) // 2)} so'm"
+            for k in PACKAGES) + "\n"
         f"🤖 Aqlli chek tekshiruvi: {'yoqilgan' if auto_cheque_on() else 'o‘chirilgan' + ('' if client else ' (Claude kaliti yo‘q)')}\n"
         f"👑 Adminlar soni: {len(admin_ids())}\n\n" + ADMIN_HELP,
         parse_mode="HTML",
@@ -1108,7 +1213,7 @@ async def cmd_test(message: Message, command: CommandObject, state: FSMContext):
     if arg in ("on", "off"):
         db.execute("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)", (f"testmode_{uid}", arg))
         if arg == "on":  # toza mijoz sifatida boshlash
-            db.execute("UPDATE users SET sub='', credits=0, calc_paid=0 WHERE user_id=?", (uid,))
+            db.execute("UPDATE users SET sub='', credits=0, calc_paid=0, vip_until=NULL WHERE user_id=?", (uid,))
             db.execute("UPDATE payments SET status='test' WHERE user_id=? AND status='pending'", (uid,))
         db.commit()
         await state.clear()
@@ -1182,27 +1287,16 @@ async def cmd_setcard(message: Message, command: CommandObject):
                          parse_mode="HTML")
 
 
-@admin_router.message(Command("setprice"))
-async def cmd_setprice(message: Message, command: CommandObject):
+@admin_router.message(Command("setpaket", "setprice"))
+async def cmd_setpaket(message: Message, command: CommandObject):
     if not is_admin(message.from_user.id):
         return
-    nums = re.findall(r"\d+", (command.args or "").replace(" 000", "000"))
-    if len(nums) != 2:
-        return await message.answer("Masalan: /setprice 10000 5000")
-    set_setting("price_full", nums[0])
-    set_setting("price_sub", nums[1])
-    await message.answer(f"✅ Narx: {money(nums[0])} so'm, obunachiga {money(nums[1])} so'm")
-
-
-@admin_router.message(Command("setpack"))
-async def cmd_setpack(message: Message, command: CommandObject):
-    if not is_admin(message.from_user.id):
-        return
-    nums = re.findall(r"\d+", command.args or "")
-    if not nums or not 1 <= int(nums[0]) <= 50:
-        return await message.answer(f"Hozir: 1 to'lov = {pack_size()} ta savol.\nO'zgartirish: /setpack 3")
-    set_setting("pack", nums[0])
-    await message.answer(f"✅ Endi 1 ta to'lov = {nums[0]} ta savol")
+    args = (command.args or "").replace(" 000", "000").split()
+    keys = ", ".join(PACKAGES)
+    if len(args) != 2 or args[0] not in PACKAGES or not args[1].isdigit():
+        return await message.answer(f"Masalan: /setpaket month 80000\nPaketlar: {keys}")
+    set_setting(f"pkg_{args[0]}", args[1])
+    await message.answer(f"✅ {T['uz']['pkg_' + args[0]]}: {money(args[1])} so'm (obunachiga {money(int(args[1]) // 2)})")
 
 
 @admin_router.message(Command("ban", "unban"))
@@ -1216,9 +1310,29 @@ async def cmd_ban(message: Message, command: CommandObject):
     ban = message.text.startswith("/ban")
     set_user_field(uid, "banned", 1 if ban else 0)
     if ban:
-        db.execute("UPDATE users SET credits=0, calc_paid=0 WHERE user_id=?", (uid,))
+        db.execute("UPDATE users SET credits=0, calc_paid=0, vip_until=NULL WHERE user_id=?", (uid,))
         db.commit()
     await message.answer(f"{'🚫 Bloklandi' if ban else '✅ Blokdan chiqarildi'}: {uid}")
+
+
+@admin_router.message(Command("vip"))
+async def cmd_vip(message: Message, command: CommandObject, bot: Bot):
+    if not is_admin(message.from_user.id):
+        return
+    nums = re.findall(r"\d+", command.args or "")
+    if len(nums) != 2:
+        return await message.answer("Masalan: /vip 123456789 30  (30 kunlik paket)")
+    uid, days = int(nums[0]), int(nums[1])
+    until = max(vip_until(uid) or now(), now()) + timedelta(days=days)
+    set_user_field(uid, "vip_until", until.isoformat())
+    await message.answer(f"💎 {uid}: {until.strftime('%d.%m.%Y %H:%M')} gacha faol")
+    try:
+        lang = get_lang(uid)
+        await bot.send_message(uid, T[lang]["pay_ok_vip"].format(name="💎", until=until.strftime("%d.%m.%Y %H:%M"),
+                                                                 limit=DAILY_LIMIT), reply_markup=menu_kb(lang),
+                               parse_mode="HTML")
+    except Exception:
+        pass
 
 
 @admin_router.message(Command("addcredit"))
@@ -1234,7 +1348,7 @@ async def cmd_addcredit(message: Message, command: CommandObject, bot: Bot):
     await message.answer(f"✅ {uid} ga {n} ta savol qo'shildi.")
     try:
         lang = get_lang(uid)
-        await bot.send_message(uid, T[lang]["pay_ok"].format(n=n), reply_markup=menu_kb(lang))
+        await bot.send_message(uid, T[lang]["pay_ok_once"].format(q=n, c=0), reply_markup=menu_kb(lang))
     except Exception:
         pass
 
@@ -1280,8 +1394,8 @@ async def cb_lang(cb: CallbackQuery, state: FSMContext):
 
 async def start_calc(message: Message, state: FSMContext, lang: str, uid: int):
     await state.clear()
-    if not (privileged(uid) or int(user_field(uid, "calc_paid", 0) or 0) > 0):
-        return await show_payment(message, state, lang, uid, purpose="calc")
+    if not can_calc(uid):
+        return await show_packages(message, lang, uid, "need_calc")
     await state.set_state(Calc.start_date)
     await message.answer(T[lang]["q1"])
 
@@ -1296,9 +1410,9 @@ async def btn_other(message: Message, state: FSMContext):
     await state.clear()
     uid = message.from_user.id
     lang = get_lang(uid)
-    if privileged(uid) or int(user_field(uid, "credits", 0)) > 0:
+    if can_ask(uid):
         return await message.answer(T[lang]["ask_question"])
-    await show_payment(message, state, lang, uid)
+    await show_packages(message, lang, uid, "need_q")
 
 
 # 1-savol: sana
@@ -1363,7 +1477,7 @@ async def cb_regular(cb: CallbackQuery, state: FSMContext):
         text = calc_result(date.fromisoformat(data["start"]), int(data["cycle"]), lang)
         await cb.message.answer(text)
         text = t["after_result"]
-        if not privileged(cb.from_user.id):  # 1 ta to'lov = 1 ta hisoblash
+        if not privileged(cb.from_user.id) and not vip_active(cb.from_user.id):  # 1 martalik paketdan 1 ta hisoblash
             db.execute("UPDATE users SET calc_paid = MAX(COALESCE(calc_paid, 0) - 1, 0) WHERE user_id=?",
                        (cb.from_user.id,))
             db.commit()
@@ -1430,8 +1544,9 @@ async def free_question(message: Message, bot: Bot, state: FSMContext):
     if message.text.startswith("/"):
         return
     admin = privileged(uid)
-    if not admin and int(user_field(uid, "credits", 0)) <= 0:
-        return await show_payment(message, state, lang, uid)
+    if not can_ask(uid):
+        return await show_packages(message, lang, uid, "need_q")
+    vip = vip_active(uid)
     if client is None:
         return await message.answer(t["unavailable"])
     if used_today(uid) >= DAILY_LIMIT and not privileged(uid):
@@ -1453,7 +1568,9 @@ async def free_question(message: Message, bot: Bot, state: FSMContext):
 
     add_usage(uid)
     write_log(uid, "question", message.text, answer, in_tok, out_tok, MODEL)
-    if not admin and answer:
+    if vip and not admin and answer:
+        answer += t["vip_left"].format(until=vip_until(uid).strftime("%d.%m.%Y"))
+    elif not admin and answer:
         db.execute("UPDATE users SET credits = MAX(credits - 1, 0) WHERE user_id=?", (uid,))
         db.commit()
         left = int(user_field(uid, "credits", 0))
@@ -1473,6 +1590,62 @@ async def other_content(message: Message, bot: Bot, state: FSMContext):
 DP = Dispatcher()
 
 
+# ---------- 🌐 Mini ilova (paketlar sahifasi) ----------
+WEBAPP_DIR = Path(__file__).parent / "webapp"
+PORT = int(os.getenv("PORT", "8080"))
+
+
+def check_init_data(init_data: str) -> dict | None:
+    """Telegram WebApp initData imzosini tekshiradi; to'g'ri bo'lsa user ma'lumotini qaytaradi."""
+    try:
+        pairs = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
+        got = pairs.pop("hash", "")
+        dcs = "\n".join(f"{k}={v}" for k, v in sorted(pairs.items()))
+        secret = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+        calc = hmac.new(secret, dcs.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(calc, got):
+            return None
+        return json.loads(pairs.get("user", "{}"))
+    except Exception:
+        return None
+
+
+def make_web_app() -> web.Application:
+    app = web.Application()
+
+    async def index(_):
+        return web.FileResponse(WEBAPP_DIR / "index.html")
+
+    async def health(_):
+        return web.Response(text="ok")
+
+    async def api_state(request):
+        body = await request.json() if request.can_read_body else {}
+        user = check_init_data(body.get("initData", ""))
+        uid = int(user["id"]) if user and user.get("id") else 0
+        sub = bool(uid) and is_subscribed(uid)
+        until = vip_until(uid) if uid else None
+        return web.json_response({
+            "ok": bool(uid),
+            "sub": sub,
+            "insta": insta_url(),
+            "vip_until": until.strftime("%d.%m.%Y") if until and until > now() else "",
+            "credits": int(user_field(uid, "credits", 0) or 0) if uid else 0,
+            "calcs": int(user_field(uid, "calc_paid", 0) or 0) if uid else 0,
+            "daily_limit": DAILY_LIMIT,
+            "packages": [
+                {"key": k, "base": pkg_base_price(k), "price": pkg_base_price(k) // 2 if sub else pkg_base_price(k),
+                 "days": PACKAGES[k][1]}
+                for k in PACKAGES
+            ],
+        })
+
+    app.router.add_get("/", index)
+    app.router.add_get("/health", health)
+    app.router.add_post("/api/state", api_state)
+    return app
+
+
 async def main():
     bot = Bot(BOT_TOKEN)
     dp = DP
@@ -1481,6 +1654,10 @@ async def main():
     dp.include_router(paid_router)
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
+    runner = web.AppRunner(make_web_app())
+    await runner.setup()
+    await web.TCPSite(runner, "0.0.0.0", PORT).start()
+    log.info("Mini ilova %s portda. WEBAPP_URL=%s", PORT, WEBAPP_URL or "(qo'yilmagan)")
     log.info("Bot ishga tushdi. Model: %s", MODEL)
     await dp.start_polling(bot)
 
