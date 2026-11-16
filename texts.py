@@ -88,7 +88,12 @@ T = {
             "To'lovni qilgach, chekni (skrinshot) shu yerga yuboring 👇"
         ),
         "pay_discount": " (obunachilar uchun 50% chegirma 🎁)",
-        "pay_sub_hint": "🎁 Instagram sahifaga obuna bo'lsangiz, narx {sub_price} so'm bo'ladi.",
+        "pay_sub_hint": (
+            "🎁 Savolingizga {sub_price} so'mga (50% chegirma bilan) javob olish uchun, iltimos, "
+            "quyidagi havola orqali o'tib, shifokorning Instagram sahifasiga obuna bo'ling, "
+            "so'ng «✅ Obuna bo'ldim» tugmasini bosing 👇"
+        ),
+        "btn_insta_go": "📸 Instagram'ga o'tib obuna bo'lish",
         "btn_get_discount": "🎁 Obuna bo'lib 50% chegirma olish",
         "pay_not_ready": "Kechirasiz, to'lov hozircha sozlanmagan. Keyinroq urinib ko'ring 🙏",
         "pay_need_photo": "Iltimos, to'lov chekini rasm (skrinshot) ko'rinishida yuboring 📸",
@@ -178,7 +183,12 @@ T = {
             "После оплаты отправьте сюда чек (скриншот) 👇"
         ),
         "pay_discount": " (скидка 50% для подписчиков 🎁)",
-        "pay_sub_hint": "🎁 Если подпишетесь на страницу в Instagram, цена будет {sub_price} сум.",
+        "pay_sub_hint": (
+            "🎁 Чтобы получить ответ на вопрос за {sub_price} сум (скидка 50%), пожалуйста, "
+            "перейдите по ссылке ниже и подпишитесь на Instagram-страницу врача, "
+            "затем нажмите «✅ Я подписался(ась)» 👇"
+        ),
+        "btn_insta_go": "📸 Перейти в Instagram и подписаться",
         "btn_get_discount": "🎁 Подписаться и получить скидку 50%",
         "pay_not_ready": "Извините, оплата пока не настроена. Попробуйте позже 🙏",
         "pay_need_photo": "Пожалуйста, отправьте чек об оплате в виде фото (скриншота) 📸",

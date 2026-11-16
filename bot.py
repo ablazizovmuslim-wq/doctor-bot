@@ -703,7 +703,10 @@ async def show_payment(message: Message, state: FSMContext, lang: str, uid: int)
     kb = None
     if not sub and insta_url():
         text += "\n\n" + t["pay_sub_hint"].format(sub_price=money(get_setting("price_sub")))
-        kb = InlineKeyboardMarkup(inline_keyboard=[[ibtn(t["btn_get_discount"], "sub:start", st="success")]])
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=t["btn_insta_go"], url=insta_url(), style=style("primary"))],
+            [ibtn(t["btn_subbed"], "sub:req", st="success")],
+        ])
     await state.set_state(Pay.receipt)
     await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
