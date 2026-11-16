@@ -1539,10 +1539,17 @@ async def got_date(message: Message, state: FSMContext):
 
 
 # 2-savol: sikl davomiyligi
-async def set_cycle(message: Message, state: FSMContext, lang: str, n: int):
-    await state.update_data(cycle=n)
-    await state.set_state(Calc.regular)
-    await message.answer(T[lang]["q3"], reply_markup=regular_kb(lang))
+async def set_cycle(message: Message, state: FSMContext, lang: str, n: int, uid: int):
+    """Sikl kiritildi — 3-savol (muntazammi) olib tashlangan, darhol natija beriladi."""
+    t = T[lang]
+    data = await state.get_data()
+    await state.clear()
+    await message.answer(calc_result(date.fromisoformat(data["start"]), n, lang))
+    if not privileged(uid) and not vip_active(uid):  # 1 martalik paketdan 1 ta hisoblash
+        db.execute("UPDATE users SET calc_paid = MAX(COALESCE(calc_paid, 0) - 1, 0) WHERE user_id=?", (uid,))
+        db.commit()
+    await message.answer(t["after_result"], reply_markup=menu_kb(lang))
+    write_log(uid, "calc", f"{data.get('start')} / {n}", "")
 
 
 @router.callback_query(Calc.cycle_len, F.data.startswith("cyc:"))
@@ -1552,7 +1559,7 @@ async def cb_cycle(cb: CallbackQuery, state: FSMContext):
     lang = get_lang(cb.from_user.id)
     n = int(cb.data.split(":")[1])
     await cb.message.answer(f"✔️ {n}")
-    await set_cycle(cb.message, state, lang, n)
+    await set_cycle(cb.message, state, lang, n, cb.from_user.id)
 
 
 @router.message(Calc.cycle_len, F.text)
@@ -1562,45 +1569,13 @@ async def got_cycle(message: Message, state: FSMContext):
     n = int(m.group()) if m else 0
     if not 20 <= n <= 45:
         return await message.answer(T[lang]["bad_cycle"])
-    await set_cycle(message, state, lang, n)
-
-
-# 3-savol: muntazammi
-@router.callback_query(Calc.regular, F.data.startswith("reg:"))
-async def cb_regular(cb: CallbackQuery, state: FSMContext):
-    await cb.answer()
-    lang = get_lang(cb.from_user.id)
-    t = T[lang]
-    choice = cb.data.split(":")[1]
-    await cb.message.edit_reply_markup(reply_markup=None)
-    await cb.message.answer(t["yes"] if choice == "yes" else t["no"])
-    data = await state.get_data()
-    await state.clear()
-
-    if choice == "no":
-        text = t["irregular"]
-    else:
-        text = calc_result(date.fromisoformat(data["start"]), int(data["cycle"]), lang)
-        await cb.message.answer(text)
-        text = t["after_result"]
-        if not privileged(cb.from_user.id) and not vip_active(cb.from_user.id):  # 1 martalik paketdan 1 ta hisoblash
-            db.execute("UPDATE users SET calc_paid = MAX(COALESCE(calc_paid, 0) - 1, 0) WHERE user_id=?",
-                       (cb.from_user.id,))
-            db.commit()
-    await cb.message.answer(text, reply_markup=menu_kb(lang))
-    write_log(cb.from_user.id, "calc", f"{data.get('start')} / {data.get('cycle')} / {choice}", "")
+    await set_cycle(message, state, lang, n, message.from_user.id)
 
 
 @router.callback_query()
 async def cb_stale(cb: CallbackQuery):
     # Eski tugma bosilsa
     await cb.answer("🔄 /start", show_alert=False)
-
-
-@router.message(Calc.regular)
-async def regular_text(message: Message):
-    lang = get_lang(message.from_user.id)
-    await message.answer(T[lang]["q3"], reply_markup=regular_kb(lang))
 
 
 # Admin uchun statistika

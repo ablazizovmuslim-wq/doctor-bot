@@ -53,7 +53,9 @@ T = {
             "🩸 Keyingi hayz kutiladi: {next}"
             "{passed}\n\n"
             "ℹ️ Hisoblash usuli: keyingi hayz sanasidan 14 kun ayiriladi. "
-            "Bu taxminiy natija. Aniqroq bilish uchun ovulyatsiya testi yoki UZI (follikulometriya) yordam beradi."
+            "Bu taxminiy natija. Aniqroq bilish uchun ovulyatsiya testi yoki UZI (follikulometriya) yordam beradi.\n\n"
+            "⚠️ Agar hayz kechikib yoki o'zgarib tursa, kalendar hisobi aniq bo'lmaydi — "
+            "bunday holatda shifokor ko'rigi, follikulometriya yoki ovulyatsiya testlari tavsiya etiladi."
         ),
         "passed": "\n\n⏳ Bu sikldagi ovulyatsiya kuni o'tib ketgan. Keyingi sikldagi taxminiy ovulyatsiya: {ov2}",
         "after_result": "Yana savolingiz bo'lsa, «❓ Boshqa savol» tugmasini bosing.",
@@ -191,7 +193,9 @@ T = {
             "🩸 Следующая менструация ожидается: {next}"
             "{passed}\n\n"
             "ℹ️ Как считается: от даты следующей менструации отнимается 14 дней. "
-            "Это примерный результат. Точнее определить помогут тест на овуляцию или УЗИ (фолликулометрия)."
+            "Это примерный результат. Точнее определить помогут тест на овуляцию или УЗИ (фолликулометрия).\n\n"
+            "⚠️ Если менструация бывает с задержками или нерегулярно, календарный расчёт неточен — "
+            "в таком случае рекомендуется осмотр врача, фолликулометрия или тесты на овуляцию."
         ),
         "passed": "\n\n⏳ Овуляция в этом цикле уже прошла. Примерная овуляция в следующем цикле: {ov2}",
         "after_result": "Если есть ещё вопросы, нажмите «❓ Другой вопрос».",
