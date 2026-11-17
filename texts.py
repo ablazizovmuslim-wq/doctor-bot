@@ -136,6 +136,7 @@ T = {
         "pkgs_sub_on": "🎁 Siz Instagram obunachisisiz — barcha paketlar chegirma bilan!",
         "pkgs_sub_hint": "🎁 Shifokorning Instagram sahifasiga obuna bo'lsangiz — <b>barcha paketlar chegirma bilan</b>. Obuna bo'lib, «✅ Obuna bo'ldim» ni bosing 👇",
         "need_q": "❓ Savolingizga javob olish uchun to'lov qiling.",
+        "start_offer": "📸 Shifokorning Instagram sahifasiga obuna bo'ling va javobni <b>chegirma bilan</b> oling — yoki <b>10 000 so'm</b> to'lab javob oling 👇",
         "need_calc": "🗓 Ovulyatsiya kunini hisoblash uchun to'lov qiling.",
         "pkgs_sub_hint_one": "🎁 Shifokorning Instagram sahifasiga obuna bo'lsangiz — atigi <b>{sub_price} so'm</b>! Obuna bo'lib, «✅ Obuna bo'ldim» ni bosing 👇",
         "pay_info_pkg": (
@@ -277,6 +278,7 @@ T = {
         "pkgs_sub_on": "🎁 Вы подписчик Instagram — все пакеты со скидкой!",
         "pkgs_sub_hint": "🎁 Подпишитесь на Instagram-страницу врача — <b>все пакеты со скидкой</b>. После подписки нажмите «✅ Я подписался(ась)» 👇",
         "need_q": "❓ Чтобы получить ответ на вопрос, оплатите.",
+        "start_offer": "📸 Подпишитесь на Instagram-страницу врача и получите ответ <b>со скидкой</b> — или оплатите <b>10 000 сум</b> 👇",
         "need_calc": "🗓 Для расчёта дня овуляции оплатите.",
         "pkgs_sub_hint_one": "🎁 Подпишитесь на Instagram-страницу врача — всего <b>{sub_price} сум</b>! После подписки нажмите «✅ Я подписался(ась)» 👇",
         "pay_info_pkg": (

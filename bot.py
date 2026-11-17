@@ -1506,7 +1506,10 @@ async def cb_lang(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
     await cb.message.edit_reply_markup(reply_markup=None)
     await cb.message.answer(T[lang]["welcome"], reply_markup=menu_kb(lang))
-    await start_calc(cb.message, state, lang, cb.from_user.id)
+    uid = cb.from_user.id
+    await state.clear()
+    if not (can_ask(uid) or can_calc(uid)):  # to'lov taklifi: obuna bo'lsa 5 000, bo'lmasa 10 000
+        await show_packages(cb.message, lang, uid, "start_offer", state)
 
 
 async def start_calc(message: Message, state: FSMContext, lang: str, uid: int):
