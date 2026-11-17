@@ -136,12 +136,10 @@ def money(n: int | str) -> str:
 
 # ---------- 💎 Paketlar ----------
 # key: (oddiy narx, obunachiga narx, kunlar; 0 = bir martalik)
+# Hozir faqat bitta to'lov turi: 10 000 so'm (Instagram obunachisiga 5 000) = 3 savol + 1 hisoblash.
+# Muddatli paketlarni qaytarish uchun shu yerga qo'shing, masalan "month": (80000, 50000, 30).
 PACKAGES = {
     "once": (10000, 5000, 0),
-    "day": (20000, 12000, 1),
-    "week": (40000, 25000, 7),
-    "month": (80000, 50000, 30),
-    "vip": (450000, 300000, 365),
 }
 ONCE_QUESTIONS, ONCE_CALCS = 3, 1
 EFFECT_PARTY = "5046509860389126442"  # 🎉 Telegram message effect
@@ -866,9 +864,12 @@ def packages_kb(t: dict, uid: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def show_packages(message: Message, lang: str, uid: int, reason: str = "") -> None:
+async def show_packages(message: Message, lang: str, uid: int, reason: str = "",
+                        state: FSMContext | None = None) -> None:
     """Paket tanlash xabari (savol yoki hisoblash uchun ruxsat bo'lmaganda)."""
     t = T[lang]
+    if len(PACKAGES) == 1 and state is not None:  # bitta tur — darhol to'lov ma'lumoti
+        return await show_payment(message, state, lang, uid, next(iter(PACKAGES)), prefix=t.get(reason, ""))
     if not get_setting("card").strip():
         await message.answer(t["pay_not_ready"])
         return
@@ -884,7 +885,8 @@ async def show_packages(message: Message, lang: str, uid: int, reason: str = "")
     await message.answer(text, parse_mode="HTML", reply_markup=packages_kb(t, uid))
 
 
-async def show_payment(message: Message, state: FSMContext, lang: str, uid: int, pkg: str) -> None:
+async def show_payment(message: Message, state: FSMContext, lang: str, uid: int, pkg: str,
+                       prefix: str = "") -> None:
     t = T[lang]
     card = get_setting("card").strip()
     if not card:
@@ -901,9 +903,18 @@ async def show_payment(message: Message, state: FSMContext, lang: str, uid: int,
         discount=t["pay_discount"] if sub else "",
         card=f"<code>{html.escape(card)}</code>", holder=html.escape(get_setting("holder") or "—"),
     )
+    kb = None
+    if not sub and insta_url():
+        text += "\n\n" + t["pkgs_sub_hint_one"].format(sub_price=money(pkg_sub_price(pkg)))
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=t["btn_insta_go"], url=insta_url(), style=style("primary"))],
+            [ibtn(t["btn_subbed"], "sub:req", st="success")],
+        ])
+    if prefix:
+        text = prefix + "\n\n" + text
     await state.set_state(Pay.receipt)
     await state.update_data(purpose=pkg)
-    await message.answer(text, parse_mode="HTML")
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
 @paid_router.callback_query(F.data.startswith("pkg:"))
@@ -935,10 +946,10 @@ async def got_web_app_data(message: Message, state: FSMContext):
 
 
 @paid_router.callback_query(F.data == "pay:calc")
-async def cb_pay_calc(cb: CallbackQuery):
+async def cb_pay_calc(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
     uid = cb.from_user.id
-    await show_packages(cb.message, get_lang(uid), uid, "need_calc")
+    await show_packages(cb.message, get_lang(uid), uid, "need_calc", state)
 
 
 async def handle_receipt(message: Message, bot: Bot, state: FSMContext) -> None:
@@ -1501,7 +1512,7 @@ async def cb_lang(cb: CallbackQuery, state: FSMContext):
 async def start_calc(message: Message, state: FSMContext, lang: str, uid: int):
     await state.clear()
     if not can_calc(uid):
-        return await show_packages(message, lang, uid, "need_calc")
+        return await show_packages(message, lang, uid, "need_calc", state)
     await state.set_state(Calc.start_date)
     await message.answer(T[lang]["q1"])
 
@@ -1518,7 +1529,7 @@ async def btn_other(message: Message, state: FSMContext):
     lang = get_lang(uid)
     if can_ask(uid):
         return await message.answer(T[lang]["ask_question"])
-    await show_packages(message, lang, uid, "need_q")
+    await show_packages(message, lang, uid, "need_q", state)
 
 
 # 1-savol: sana
@@ -1631,7 +1642,7 @@ async def answer_question(message: Message, bot: Bot, question: str, media_msg: 
     t = T[lang]
     admin = privileged(uid)
     if not can_ask(uid):
-        return await show_packages(message, lang, uid, "need_q")
+        return await show_packages(message, lang, uid, "need_q", state)
     vip = vip_active(uid)
     if client is None:
         return await message.answer(t["unavailable"])

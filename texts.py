@@ -122,7 +122,7 @@ T = {
         # --- Paketlar ---
         "btn_pkgs": "💎 Paketlar",
         "sum": "so'm",
-        "pkg_once": "⚡ 1 martalik",
+        "pkg_once": "❓ Savol-javob",
         "pkg_day": "☀️ Kunlik",
         "pkg_week": "📅 Haftalik",
         "pkg_month": "🌙 Oylik",
@@ -135,8 +135,9 @@ T = {
         "pkgs_title": "💎 <b>Paketni tanlang:</b>",
         "pkgs_sub_on": "🎁 Siz Instagram obunachisisiz — barcha paketlar chegirma bilan!",
         "pkgs_sub_hint": "🎁 Shifokorning Instagram sahifasiga obuna bo'lsangiz — <b>barcha paketlar chegirma bilan</b>. Obuna bo'lib, «✅ Obuna bo'ldim» ni bosing 👇",
-        "need_q": "❓ Savolingizga javob olish uchun paket kerak.",
-        "need_calc": "🗓 Ovulyatsiya kunini hisoblash uchun paket kerak.",
+        "need_q": "❓ Savolingizga javob olish uchun to'lov qiling.",
+        "need_calc": "🗓 Ovulyatsiya kunini hisoblash uchun to'lov qiling.",
+        "pkgs_sub_hint_one": "🎁 Shifokorning Instagram sahifasiga obuna bo'lsangiz — atigi <b>{sub_price} so'm</b>! Obuna bo'lib, «✅ Obuna bo'ldim» ni bosing 👇",
         "pay_info_pkg": (
             "💎 Paket: <b>{name}</b>\n"
             "📦 {what}\n"
@@ -262,7 +263,7 @@ T = {
         # --- Пакеты ---
         "btn_pkgs": "💎 Пакеты",
         "sum": "сум",
-        "pkg_once": "⚡ Разовый",
+        "pkg_once": "❓ Вопрос-ответ",
         "pkg_day": "☀️ На день",
         "pkg_week": "📅 На неделю",
         "pkg_month": "🌙 На месяц",
@@ -275,8 +276,9 @@ T = {
         "pkgs_title": "💎 <b>Выберите пакет:</b>",
         "pkgs_sub_on": "🎁 Вы подписчик Instagram — все пакеты со скидкой!",
         "pkgs_sub_hint": "🎁 Подпишитесь на Instagram-страницу врача — <b>все пакеты со скидкой</b>. После подписки нажмите «✅ Я подписался(ась)» 👇",
-        "need_q": "❓ Чтобы получить ответ на вопрос, нужен пакет.",
-        "need_calc": "🗓 Для расчёта дня овуляции нужен пакет.",
+        "need_q": "❓ Чтобы получить ответ на вопрос, оплатите.",
+        "need_calc": "🗓 Для расчёта дня овуляции оплатите.",
+        "pkgs_sub_hint_one": "🎁 Подпишитесь на Instagram-страницу врача — всего <b>{sub_price} сум</b>! После подписки нажмите «✅ Я подписался(ась)» 👇",
         "pay_info_pkg": (
             "💎 Пакет: <b>{name}</b>\n"
             "📦 {what}\n"
