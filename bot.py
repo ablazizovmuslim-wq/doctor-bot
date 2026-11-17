@@ -237,7 +237,60 @@ def write_log(uid, kind, question, answer, in_tok=0, out_tok=0, model=""):
         (uid, kind, question, answer, in_tok, out_tok, model, now().isoformat()),
     )
     db.commit()
+    if (in_tok or out_tok) and BOT is not None:
+        try:
+            asyncio.get_running_loop().create_task(check_balance(BOT))
+        except RuntimeError:
+            pass
 
+
+# ---------- 💰 Claude balansi (taxminiy kuzatuv) ----------
+BOT: "Bot | None" = None
+
+
+def spent_since(since: str) -> float:
+    rows = db.execute("SELECT model, SUM(in_tok), SUM(out_tok) FROM log WHERE created_at >= ? GROUP BY model",
+                      (since,)).fetchall()
+    cost = 0.0
+    for model, i, o in rows:
+        pi, po = PRICES.get(model or MODEL, PRICES.get(MODEL, (2.0, 10.0)))
+        cost += (i or 0) / 1e6 * pi + (o or 0) / 1e6 * po
+    return cost
+
+
+def balance_left() -> tuple[float, float] | None:
+    """(qolgan $, solingan $) yoki None — /balans qo'yilmagan bo'lsa."""
+    try:
+        total = float(get_setting("bal_usd") or 0)
+    except ValueError:
+        total = 0
+    since = get_setting("bal_since")
+    if total <= 0 or not since:
+        return None
+    return total - spent_since(since), total
+
+
+BAL_LEVELS = [(0.5, "50%"), (0.2, "20%"), (0.1, "10%")]
+
+
+async def check_balance(bot) -> None:
+    b = balance_left()
+    if not b:
+        return
+    left, total = b
+    done = get_setting("bal_alert") or ""
+    for frac, name in BAL_LEVELS:
+        if left <= total * frac and name not in done:
+            set_setting("bal_alert", done + name + ",")
+            uzs = int(left * 12800)
+            await send_admins(
+                bot,
+                f"⚠️ <b>Claude balansi kamaymoqda</b>\n\nTaxminan <b>${max(left, 0):.2f}</b> qoldi "
+                f"(~{money(max(uzs, 0))} so'm) — solingan ${total:.2f} dan {name} dan kam.\n\n"
+                "Pul solish: platform.claude.com → Billing → Buy credits.\n"
+                "Solgandan keyin botga yozing: <code>/balans YANGI_SUMMA</code> (masalan /balans 10)",
+            )
+            break
 
 # ---------- Klaviaturalar ----------
 # Premium (custom) emoji ID'lari Railway Variables orqali beriladi: EMOJI_CALC, EMOJI_OTHER, ...
@@ -1277,6 +1330,7 @@ ADMIN_HELP = (
     "/vip <code>ID 30</code> — foydalanuvchiga N kunlik paket berish\n"
     "/addcredit <code>ID 1</code> — foydalanuvchiga bepul savol berish\n"
     "/ban <code>ID</code> | /unban <code>ID</code> — yolg'on chek yuborganni bloklash\n"
+    "/balans <code>10</code> — Claude'ga solingan $ ni kiritish (kamayganda ogohlantiradi); /balans — qoldiq\n"
     "/autochek <code>on</code> | <code>off</code> — chekni avtomatik (aqlli) tekshirish\n"
     "/test <code>on</code> | <code>off</code> — o'zingizni oddiy mijoz sifatida sinash\n"
     "/obuna <code>auto</code> | <code>manual</code> — Instagram obunani darhol ochish yoki qo'lda tasdiqlash\n"
@@ -1414,6 +1468,30 @@ async def cmd_setpaket(message: Message, command: CommandObject):
         set_setting(f"pkgs_{args[0]}", args[2])
     await message.answer(f"✅ {T['uz']['pkg_' + args[0]]}: {money(pkg_base_price(args[0]))} so'm "
                          f"(obunachiga {money(pkg_sub_price(args[0]))})")
+
+
+@admin_router.message(Command("balans", "balance"))
+async def cmd_balans(message: Message, command: CommandObject):
+    if not is_admin(message.from_user.id):
+        return
+    arg = (command.args or "").replace(",", ".").replace("$", "").strip()
+    if arg:
+        try:
+            usd = float(arg)
+        except ValueError:
+            return await message.answer("Masalan: /balans 10   (Claude'ga solingan $ summa)")
+        set_setting("bal_usd", str(usd))
+        set_setting("bal_since", now().isoformat())
+        set_setting("bal_alert", "")
+        return await message.answer(f"✅ Balans qayd etildi: ${usd:.2f}. Bot sarfni kuzatadi va 50%, 20%, 10% qolganda ogohlantiradi.")
+    b = balance_left()
+    if not b:
+        return await message.answer("Balans hali kiritilmagan.\nClaude'ga pul solgach yozing: /balans 10")
+    left, total = b
+    await message.answer(
+        f"💰 Claude balansi (taxminiy): <b>${max(left, 0):.2f}</b> qoldi / ${total:.2f}\n"
+        f"≈ {money(int(max(left, 0) * 12800))} so'm\n\n"
+        "Aniq balans: platform.claude.com → Billing", parse_mode="HTML")
 
 
 @admin_router.message(Command("ban", "unban"))
@@ -1770,7 +1848,9 @@ def make_web_app() -> web.Application:
 
 
 async def main():
+    global BOT
     bot = Bot(BOT_TOKEN)
+    BOT = bot
     dp = DP
     bot.session.middleware(emoji_fallback)
     dp.include_router(admin_router)
